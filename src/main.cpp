@@ -3,9 +3,11 @@
 #include "TCA9555.h"
 
 // Define pins for ESP32-C5
-// TODO: Set your actual I2C pins for ESP32-C5
-#define I2C_SDA 2  // Replace with your actual SDA pin
-#define I2C_SCL 3  // Replace with your actual SCL pin
+// IMPORTANT: ESP32-C5 has specific GPIO restrictions
+// Common valid I2C pins for ESP32-C5: GPIO 6/7, GPIO 8/9, GPIO 18/19
+// GPIO 2/3 may cause ESP_ERR_INVALID_STATE on some ESP32-C5 boards
+#define I2C_SDA 2  // Try GPIO 6 for SDA (change if needed)
+#define I2C_SCL 3  // Try GPIO 7 for SCL (change if needed)
 
 // Interrupt pins from TCA9555 expanders
 #define GPIO_INT1 28  // Interrupt from first expander
@@ -123,24 +125,87 @@ uint8_t readIST9201(uint8_t ist9201_addr, uint8_t reg) {
 
 void setup() {
   Serial.begin(115200);
-  delay(1000);
+  byte exp2addr = 0x21;
+  byte error;
+  delay(2000);  // Longer delay for USB CDC to initialize on ESP32-C5
 
-  Serial.println("TCA9555 I/O Expander Test");
-
-  // Initialize I2C bus
-  // If I2C_SDA and I2C_SCL are -1, Wire.begin() will use default pins
-  if (I2C_SDA != -1 && I2C_SCL != -1) {
-    Wire.begin(I2C_SDA, I2C_SCL);
-  } else {
-    Wire.begin();
-    Serial.println("Using default I2C pins - please update I2C_SDA and I2C_SCL defines!");
+  // Wait for Serial to be ready (important for USB CDC)
+  while (!Serial && millis() < 5000) {
+    delay(10);
   }
 
-  // Scan I2C bus to find all connected devices
-  scanI2C();
+  Serial.println("\n\n=== ESP32-C5 Starting ===");
+  Serial.println("Hello world!");
+  Serial.println();
+
+  Serial.println("TCA9555 I/O Expander Test");
+  Serial.println("Initializing I2C...");
+
+  // Initialize I2C FIRST before using it
+  Serial.print("Calling Wire.begin(");
+  Serial.print(I2C_SDA);
+  Serial.print(", ");
+  Serial.print(I2C_SCL);
+  Serial.println(")...");
+
+  // Try with explicit frequency parameter
+  if (!Wire.begin(I2C_SDA, I2C_SCL, 100000)) {
+    Serial.println("ERROR: Wire.begin() with frequency FAILED!");
+    Serial.println("Trying without frequency parameter...");
+
+    if (!Wire.begin(I2C_SDA, I2C_SCL)) {
+      Serial.println("ERROR: Wire.begin() FAILED!");
+      Serial.println("This is ESP_ERR_INVALID_STATE - pins may not support I2C");
+      while(1) { delay(1000); }
+    }
+  }
+
+  Serial.println("I2C initialized successfully!");
+  Serial.print("SDA: GPIO");
+  Serial.println(I2C_SDA);
+  Serial.print("SCL: GPIO");
+  Serial.println(I2C_SCL);
+
+  Wire.beginTransmission(exp2addr);
+  error = Wire.endTransmission();
+  Serial.print("Error: ");
+  Serial.println(error);
+
+  // Initialize expander 2
+  Serial.println("Initializing Expander 2 (0x21)...");
+  if (expander2.begin()) {
+    Serial.println("Expander 2 initialized successfully");
+  } else {
+    Serial.println("ERROR: Failed to initialize Expander 2");
+    while(1) { delay(1000); }
+  }
+
+  expander1.pinMode1(11,OUTPUT);
+
+  expander2.pinMode1(7,OUTPUT);
+  expander2.pinMode1(6,OUTPUT);
+  expander2.pinMode1(3,OUTPUT);
+  // Set pin 5 (P05) on expander2 as OUTPUT
+  expander2.pinMode1(5, OUTPUT);
+  
+  expander2.pinMode1(4,OUTPUT);
+  Serial.println("Expander 2 pin P05 configured as OUTPUT");
+
+  // Set pin 5 HIGH
+  expander2.write1(5, HIGH);
+
+  expander2.write1(4,HIGH);
+
+  expander2.write1(3,HIGH);
+  expander2.write1(6,HIGH);
+  expander2.write1(7,HIGH);
+  expander1.write1(11,HIGH);
+  Serial.println("Expander 2 pin P05 set to HIGH");
+
 
   // Initialize first expander
   // begin() sets all pins as inputs by default
+  /*
   if (expander1.begin()) {
     Serial.println("Expander 1 (0x20) initialized successfully");
   } else {
@@ -181,11 +246,13 @@ void setup() {
   expander2.pinMode8(1, 0xFF);  // Port 1: all inputs
 
   Serial.println("Setup complete");
+  */
+  
 }
 
 void loop() {
   // Check for interrupts from expander1
-  if (expander1_interrupt) {
+  /*if (expander1_interrupt) {
     expander1_interrupt = false;
     Serial.println("Expander 1 interrupt detected!");
 
@@ -227,4 +294,5 @@ void loop() {
     Serial.print("Expander 2, Port 0 pattern: 0x");
     Serial.println(pattern - 1, HEX);
   }
+ */   
 }
