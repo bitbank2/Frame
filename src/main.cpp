@@ -1,6 +1,9 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include "TCA9555.h"
+#include "pindefine.h"
+#include "globals.h"
+#include "pmic.h"
 
 // Define pins for ESP32-C5
 // IMPORTANT: ESP32-C5 has specific GPIO restrictions
@@ -13,9 +16,6 @@
 #define GPIO_INT1 28  // Interrupt from first expander
 #define GPIO_INT2 27  // Interrupt from second expander
 
-// Define expander pins for your hardware
-// Expander 1 pins (0-15)
-#define IST9201_EN 15  // IST9201 Enable pin on expander1, pin 15
 
 // Create two TCA9555 objects with different I2C addresses
 // Default address is 0x20 (when A0, A1, A2 are all LOW)
@@ -23,10 +23,32 @@
 TCA9555 expander1(0x20);  // First expander at default address
 TCA9555 expander2(0x21);  // Second expander (adjust address based on hardware)
 
+
+
 // Interrupt flags
 volatile bool expander1_interrupt = false;
 volatile bool expander2_interrupt = false;
 
+
+void expanders_voltage_gpio_init(){
+  expander1.pinMode1(EXP1_EN_V5A,OUTPUT);
+  expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V,OUTPUT);
+  expander2.pinMode1(EXP2_EN_1_35V,OUTPUT);
+  expander2.pinMode1(EXP2_EN_V5D,OUTPUT);
+  expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
+  expander2.pinMode1(EXP2_EN_DC19,OUTPUT);
+}
+
+void gpio_cs_pins_init(){
+  expander1.pinMode1(EXP1_SPI1_CS3, OUTPUT);
+  expander1.pinMode1(EXP1_SPI1_CS2, OUTPUT);
+  expander1.pinMode1(EXP1_SPI1_CS1, OUTPUT);
+  expander1.pinMode1(EXP1_SPI1_CS0, OUTPUT);
+  expander1.pinMode1(EXP1_SPI2_CS3, OUTPUT);
+  expander1.pinMode1(EXP1_SPI2_CS2, OUTPUT);
+  expander1.pinMode1(EXP1_SPI2_CS1, OUTPUT);
+  expander1.pinMode1(EXP1_SPI2_CS0, OUTPUT);
+}
 // Interrupt service routines
 void IRAM_ATTR expander1_ISR() {
   expander1_interrupt = true;
@@ -85,43 +107,6 @@ void scanI2C() {
   Serial.println("====================================\n");
 }
 
-// Helper functions to control IST9201
-void enableIST9201() {
-  expander1.write1(IST9201_EN, HIGH);
-  Serial.println("IST9201 enabled");
-}
-
-void disableIST9201() {
-  expander1.write1(IST9201_EN, LOW);
-  Serial.println("IST9201 disabled");
-}
-
-bool isIST9201Enabled() {
-  return expander1.read1(IST9201_EN) == HIGH;
-}
-
-// Write to IST9201 via I2C (example function)
-bool writeIST9201(uint8_t ist9201_addr, uint8_t reg, uint8_t value) {
-  Wire.beginTransmission(ist9201_addr);
-  Wire.write(reg);
-  Wire.write(value);
-  return (Wire.endTransmission() == 0);
-}
-
-// Read from IST9201 via I2C (example function)
-uint8_t readIST9201(uint8_t ist9201_addr, uint8_t reg) {
-  Wire.beginTransmission(ist9201_addr);
-  Wire.write(reg);
-  if (Wire.endTransmission() != 0) {
-    return 0xFF; // Error
-  }
-
-  Wire.requestFrom(ist9201_addr, (uint8_t)1);
-  if (Wire.available()) {
-    return Wire.read();
-  }
-  return 0xFF; // Error
-}
 
 void setup() {
   Serial.begin(115200);
@@ -171,6 +156,8 @@ void setup() {
   Serial.print("Error: ");
   Serial.println(error);
 
+  expanders_voltage_gpio_init();
+
   // Initialize expander 2
   Serial.println("Initializing Expander 2 (0x21)...");
   if (expander2.begin()) {
@@ -179,16 +166,6 @@ void setup() {
     Serial.println("ERROR: Failed to initialize Expander 2");
     while(1) { delay(1000); }
   }
-
-  expander1.pinMode1(11,OUTPUT);
-
-  expander2.pinMode1(7,OUTPUT);
-  expander2.pinMode1(6,OUTPUT);
-  expander2.pinMode1(3,OUTPUT);
-  // Set pin 5 (P05) on expander2 as OUTPUT
-  expander2.pinMode1(5, OUTPUT);
-  
-  expander2.pinMode1(4,OUTPUT);
   Serial.println("Expander 2 pin P05 configured as OUTPUT");
 
   // Set pin 5 HIGH
@@ -200,6 +177,11 @@ void setup() {
   expander2.write1(6,HIGH);
   expander2.write1(7,HIGH);
   expander1.write1(11,HIGH);
+
+  enablePmic();
+
+  powerSwitchEnable();
+
   Serial.println("Expander 2 pin P05 set to HIGH");
 
 
