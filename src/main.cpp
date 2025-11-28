@@ -5,6 +5,7 @@
 #include "globals.h"
 #include "pmic.h"
 
+
 // Define pins for ESP32-C5
 // IMPORTANT: ESP32-C5 has specific GPIO restrictions
 // Common valid I2C pins for ESP32-C5: GPIO 6/7, GPIO 8/9, GPIO 18/19
@@ -158,6 +159,27 @@ void setup() {
 
   expanders_voltage_gpio_init();
 
+  expander1.pinMode1(EXP1_PMIC_EN, OUTPUT);
+
+  Serial.println("Setting voltage enable pins HIGH...");
+
+  expander1.write1(EXP1_PMIC_EN, HIGH);
+  expander2.write1(EXP2_EN_DC12, HIGH);
+  expander2.write1(EXP2_EN_DC19,HIGH);
+  expander2.write1(EXP2_EN_V5D,HIGH);
+  expander2.write1(EXP2_EN_1_35V,HIGH);
+  expander2.write1(EXP2_EN_NEGATIVE_3_5V,HIGH);
+  expander1.write1(EXP1_EN_V5A,HIGH);
+  
+  enablePmic();
+
+
+  delay(2000);
+
+  scanI2C();
+
+  powerSwitchEnable();
+
   // Initialize expander 2
   Serial.println("Initializing Expander 2 (0x21)...");
   if (expander2.begin()) {
@@ -169,18 +191,9 @@ void setup() {
   Serial.println("Expander 2 pin P05 configured as OUTPUT");
 
   // Set pin 5 HIGH
-  expander2.write1(5, HIGH);
+  
 
-  expander2.write1(4,HIGH);
-
-  expander2.write1(3,HIGH);
-  expander2.write1(6,HIGH);
-  expander2.write1(7,HIGH);
-  expander1.write1(11,HIGH);
-
-  enablePmic();
-
-  powerSwitchEnable();
+  //
 
   Serial.println("Expander 2 pin P05 set to HIGH");
 

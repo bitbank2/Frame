@@ -230,7 +230,6 @@ void enablePmic(void)
 	{
 		delayms(100);
 		powerSwitchEnable();
-	    setGpioLevel(EXP1_PMIC_EN, GPIO_HIGH);
 	    while(!(getGpioLevel(PMIC_PG)));//Waiting for the PMIC_PG is the high level.
 #if SHOW_LOG
     printf("enablePmic() done. \r\n");

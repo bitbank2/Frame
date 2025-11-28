@@ -20,18 +20,22 @@
 
 #endif //#ifndef __PMIC_H__
 
-#ifdef __PMIC_C__
-#define __PMIC_EXTERN__
-#else
 #define __PMIC_EXTERN__ extern
-#endif
 
 __PMIC_EXTERN__ unsigned char initPmicData[28];
 
-__PMIC_EXTERN__ unsigned char setPmic(void);
-__PMIC_EXTERN__ unsigned char sendPmicData(unsigned char *dataBuffer, unsigned int dataLength);
-__PMIC_EXTERN__ void enablePmic(void);
-__PMIC_EXTERN__ void disablePmic(void);
-__PMIC_EXTERN__ void powerSwitchEnable(void);
-__PMIC_EXTERN__ void powerSwitchDisable(void);
-__PMIC_EXTERN__ unsigned int voltageToRegisterData(unsigned int voltageData, unsigned char setSelect);
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+extern unsigned char setPmic(void);
+extern unsigned char sendPmicData(unsigned char *dataBuffer, unsigned int dataLength);
+extern void enablePmic(void);
+extern void disablePmic(void);
+extern void powerSwitchEnable(void);
+extern void powerSwitchDisable(void);
+extern unsigned int voltageToRegisterData(unsigned int voltageData, unsigned char setSelect);
+
+#ifdef __cplusplus
+}
+#endif
