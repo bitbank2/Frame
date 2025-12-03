@@ -245,7 +245,11 @@ void enablePmic(void)
 
 void disablePmic(void)
 {
+#ifdef GREEN_BOARD
     setGpioLevel(EXP1_PMIC_EN, GPIO_LOW);
+#else
+    setGpioLevel(PMIC_EN, GPIO_LOW);
+#endif
     while(getGpioLevel(PMIC_PG));//Waiting for the PMIC_PG is the low level.
 
 }
@@ -253,11 +257,19 @@ void disablePmic(void)
 
 void powerSwitchEnable(void)
 {
+#ifdef GREEN_BOARD
 	setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH);
 	delayms(50);// Wait for VDDN to be ready.
 	setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH);
 	delayms(50);// Wait for VDDP to be ready.
 	setGpioLevel(EXP1_VNCP_EN, GPIO_HIGH);
+#else
+	setGpioLevel(VDDN_SW, GPIO_HIGH);
+	delayms(50);// Wait for VDDN to be ready.
+	setGpioLevel(VDDP_SW, GPIO_HIGH);
+	delayms(50);// Wait for VDDP to be ready.
+	setGpioLevel(VNCP_SW, GPIO_HIGH);
+#endif
 
 #if SHOW_LOG
     printf("Power Switch Enable \r\n");
@@ -269,12 +281,21 @@ void powerSwitchDisable(void)
 //====== Please use delayms() to wait for PMIC's voltages to be 0V ======
 	delayms(5000); // Please confirm the discharge time of PMIC's power supply.
 //========================================================
+#ifdef GREEN_BOARD
 	setGpioLevel(EXP1_VNCP_EN, GPIO_LOW);
+#else
+	setGpioLevel(VNCP_SW, GPIO_LOW);
+#endif
 //====== Please use delayms() to wait for VNCP to be 0V ======
 	delayms(5000);// Please confirm the discharge time of VNCP power supply.
 //========================================================
+#ifdef GREEN_BOARD
 	setGpioLevel(EXP1_VDDP_EN, GPIO_LOW);
 	setGpioLevel(EXP1_VDDN_EN, GPIO_LOW);
+#else
+	setGpioLevel(VDDP_SW, GPIO_LOW);
+	setGpioLevel(VDDN_SW, GPIO_LOW);
+#endif
 
 #if SHOW_LOG
     printf("Power Switch Disable \r\n");
