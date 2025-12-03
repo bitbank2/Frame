@@ -1,43 +1,39 @@
 #include <Arduino.h>
 #include <Wire.h>
-#include "TCA9555.h"
 #include "pindefine.h"
-#include "globals.h"
-#include "pmic.h"
 
+extern "C" {
+#include "pmic.h"
+#include "comm.h"
+}
+
+#ifdef GREEN_BOARD
+#include "TCA9555.h"
+#include "globals.h"
 
 // Define pins for ESP32-C5
-// IMPORTANT: ESP32-C5 has specific GPIO restrictions
-// Common valid I2C pins for ESP32-C5: GPIO 6/7, GPIO 8/9, GPIO 18/19
-// GPIO 2/3 may cause ESP_ERR_INVALID_STATE on some ESP32-C5 boards
-#define I2C_SDA 2  // Try GPIO 6 for SDA (change if needed)
-#define I2C_SCL 3  // Try GPIO 7 for SCL (change if needed)
+#define I2C_SDA 2
+#define I2C_SCL 3
 
 // Interrupt pins from TCA9555 expanders
-#define GPIO_INT1 28  // Interrupt from first expander
-#define GPIO_INT2 27  // Interrupt from second expander
-
+#define GPIO_INT1 28
+#define GPIO_INT2 27
 
 // Create two TCA9555 objects with different I2C addresses
-// Default address is 0x20 (when A0, A1, A2 are all LOW)
-// Second device should have different address (set via hardware pins A0, A1, A2)
 TCA9555 expander1(0x20);  // First expander at default address
 TCA9555 expander2(0x21);  // Second expander (adjust address based on hardware)
-
-
 
 // Interrupt flags
 volatile bool expander1_interrupt = false;
 volatile bool expander2_interrupt = false;
 
-
 void expanders_voltage_gpio_init(){
-  expander1.pinMode1(EXP1_EN_V5A,OUTPUT);
-  expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V,OUTPUT);
-  expander2.pinMode1(EXP2_EN_1_35V,OUTPUT);
-  expander2.pinMode1(EXP2_EN_V5D,OUTPUT);
+  expander1.pinMode1(EXP1_EN_V5A, OUTPUT);
+  expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V, OUTPUT);
+  expander2.pinMode1(EXP2_EN_1_35V, OUTPUT);
+  expander2.pinMode1(EXP2_EN_V5D, OUTPUT);
   expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
-  expander2.pinMode1(EXP2_EN_DC19,OUTPUT);
+  expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
 }
 
 void gpio_cs_pins_init(){
@@ -50,6 +46,7 @@ void gpio_cs_pins_init(){
   expander1.pinMode1(EXP1_SPI2_CS1, OUTPUT);
   expander1.pinMode1(EXP1_SPI2_CS0, OUTPUT);
 }
+
 // Interrupt service routines
 void IRAM_ATTR expander1_ISR() {
   expander1_interrupt = true;
@@ -59,7 +56,7 @@ void IRAM_ATTR expander2_ISR() {
   expander2_interrupt = true;
 }
 
-// I2C Scanner function to find all devices on the bus
+// I2C Scanner function
 void scanI2C() {
   byte error, address;
   int deviceCount = 0;
@@ -79,13 +76,14 @@ void scanI2C() {
       Serial.print(address);
       Serial.print(")");
 
-      // Identify known devices
       if (address >= 0x20 && address <= 0x27) {
         Serial.print(" - Likely TCA9555/TCA9535");
         if (address == 0x20) Serial.print(" (Expander 1)");
         if (address == 0x21) Serial.print(" (Expander 2)");
+      } else if (address == 0x48) {
+        Serial.print(" - PMIC");
       } else {
-        Serial.print(" - Unknown device (possibly IST9201?)");
+        Serial.print(" - Unknown device");
       }
       Serial.println();
       deviceCount++;
@@ -108,33 +106,107 @@ void scanI2C() {
   Serial.println("====================================\n");
 }
 
+#endif // GREEN_BOARD
+
+#ifdef BLACK_BOARD
+// Black board - ESP32-S3 with direct GPIO control
+
+void gpio_init() {
+  // Initialize GPIO pins as outputs
+  pinMode(PMIC_EN, OUTPUT);
+  pinMode(VDDP_SW, OUTPUT);
+  pinMode(VDDN_SW, OUTPUT);
+  pinMode(VNCP_SW, OUTPUT);
+  pinMode(EPD_RST, OUTPUT);
+  pinMode(PMIC_PS, OUTPUT);
+
+  // Initialize input pins
+  pinMode(PMIC_PG, INPUT);
+  pinMode(EPD_BUSY, INPUT);
+
+  // Set initial states
+  digitalWrite(PMIC_EN, LOW);
+  digitalWrite(VDDP_SW, LOW);
+  digitalWrite(VDDN_SW, LOW);
+  digitalWrite(VNCP_SW, LOW);
+  digitalWrite(EPD_RST, LOW);
+  digitalWrite(PMIC_PS, LOW);
+
+  Serial.println("GPIO pins initialized");
+}
+
+void scanI2C(TwoWire &wire, const char* busName) {
+  byte error, address;
+  int deviceCount = 0;
+
+  Serial.print("\n========== ");
+  Serial.print(busName);
+  Serial.println(" I2C Bus Scanner ==========");
+  Serial.println("Scanning I2C bus (addresses 0x01 to 0x7F)...\n");
+
+  for(address = 1; address < 127; address++) {
+    wire.beginTransmission(address);
+    error = wire.endTransmission();
+
+    if (error == 0) {
+      Serial.print("Device found at address 0x");
+      if (address < 16) Serial.print("0");
+      Serial.print(address, HEX);
+      Serial.print(" (");
+      Serial.print(address);
+      Serial.print(")");
+
+      if (address == 0x48) {
+        Serial.print(" - PMIC");
+      } else {
+        Serial.print(" - Unknown device");
+      }
+      Serial.println();
+      deviceCount++;
+    }
+    else if (error == 4) {
+      Serial.print("Unknown error at address 0x");
+      if (address < 16) Serial.print("0");
+      Serial.println(address, HEX);
+    }
+  }
+
+  Serial.println("\n====================================");
+  if (deviceCount == 0) {
+    Serial.println("No I2C devices found!");
+    Serial.println("Check connections and pull-up resistors.");
+  } else {
+    Serial.print("Total devices found: ");
+    Serial.println(deviceCount);
+  }
+  Serial.println("====================================\n");
+}
+
+#endif // BLACK_BOARD
 
 void setup() {
   Serial.begin(115200);
-  byte exp2addr = 0x21;
-  byte error;
-  delay(2000);  // Longer delay for USB CDC to initialize on ESP32-C5
+  delay(2000);
 
   // Wait for Serial to be ready (important for USB CDC)
   while (!Serial && millis() < 5000) {
     delay(10);
   }
 
-  Serial.println("\n\n=== ESP32-C5 Starting ===");
-  Serial.println("Hello world!");
+#ifdef GREEN_BOARD
+  Serial.println("\n\n=== ESP32-C5 GREEN BOARD Starting ===");
+  Serial.println("Board: Green Board with TCA9555 Expanders");
   Serial.println();
 
   Serial.println("TCA9555 I/O Expander Test");
   Serial.println("Initializing I2C...");
 
-  // Initialize I2C FIRST before using it
   Serial.print("Calling Wire.begin(");
   Serial.print(I2C_SDA);
   Serial.print(", ");
   Serial.print(I2C_SCL);
   Serial.println(")...");
 
-  // Try with explicit frequency parameter
   if (!Wire.begin(I2C_SDA, I2C_SCL, 100000)) {
     Serial.println("ERROR: Wire.begin() with frequency FAILED!");
     Serial.println("Trying without frequency parameter...");
@@ -152,33 +224,7 @@ void setup() {
   Serial.print("SCL: GPIO");
   Serial.println(I2C_SCL);
 
-  Wire.beginTransmission(exp2addr);
-  error = Wire.endTransmission();
-  Serial.print("Error: ");
-  Serial.println(error);
-
   expanders_voltage_gpio_init();
-
-  expander1.pinMode1(EXP1_PMIC_EN, OUTPUT);
-
-  Serial.println("Setting voltage enable pins HIGH...");
-
-  expander1.write1(EXP1_PMIC_EN, HIGH);
-  expander2.write1(EXP2_EN_DC12, HIGH);
-  expander2.write1(EXP2_EN_DC19,HIGH);
-  expander2.write1(EXP2_EN_V5D,HIGH);
-  expander2.write1(EXP2_EN_1_35V,HIGH);
-  expander2.write1(EXP2_EN_NEGATIVE_3_5V,HIGH);
-  expander1.write1(EXP1_EN_V5A,HIGH);
-  
-  enablePmic();
-
-
-  delay(2000);
-
-  scanI2C();
-
-  powerSwitchEnable();
 
   // Initialize expander 2
   Serial.println("Initializing Expander 2 (0x21)...");
@@ -188,106 +234,98 @@ void setup() {
     Serial.println("ERROR: Failed to initialize Expander 2");
     while(1) { delay(1000); }
   }
-  Serial.println("Expander 2 pin P05 configured as OUTPUT");
 
-  // Set pin 5 HIGH
-  
-
-  //
-
-  Serial.println("Expander 2 pin P05 set to HIGH");
-
-
-  // Initialize first expander
-  // begin() sets all pins as inputs by default
-  /*
+  // Initialize expander 1
+  Serial.println("Initializing Expander 1 (0x20)...");
   if (expander1.begin()) {
-    Serial.println("Expander 1 (0x20) initialized successfully");
+    Serial.println("Expander 1 initialized successfully");
   } else {
-    Serial.println("Failed to initialize Expander 1");
+    Serial.println("ERROR: Failed to initialize Expander 1");
+    while(1) { delay(1000); }
   }
 
-  // Initialize second expander
-  if (expander2.begin()) {
-    Serial.println("Expander 2 (0x21) initialized successfully");
-  } else {
-    Serial.println("Failed to initialize Expander 2");
+  expander1.pinMode1(EXP1_PMIC_EN, OUTPUT);
+
+  Serial.println("Setting voltage enable pins HIGH...");
+
+  expander1.write1(EXP1_PMIC_EN, HIGH);
+  expander2.write1(EXP2_EN_DC12, HIGH);
+  expander2.write1(EXP2_EN_DC19, HIGH);
+  expander2.write1(EXP2_EN_V5D, HIGH);
+  expander2.write1(EXP2_EN_1_35V, HIGH);
+  expander2.write1(EXP2_EN_NEGATIVE_3_5V, HIGH);
+  expander1.write1(EXP1_EN_V5A, HIGH);
+
+  delay(100);
+
+  scanI2C();
+
+  Serial.println("Enabling PMIC...");
+  enablePmic();
+
+  delay(1000);
+
+  Serial.println("Enabling power switches...");
+  powerSwitchEnable();
+
+  Serial.println("Green board setup complete!");
+
+#elif defined(BLACK_BOARD)
+  Serial.println("\n\n=== ESP32-S3 BLACK BOARD Starting ===");
+  Serial.println("Board: Black Board with Direct GPIO");
+  Serial.println();
+
+  // Initialize GPIO pins
+  gpio_init();
+
+  // Initialize main I2C bus (for other peripherals if any)
+  Serial.println("Initializing main I2C bus...");
+  if (!Wire.begin()) {
+    Serial.println("ERROR: Main I2C initialization failed!");
+    while(1) { delay(1000); }
   }
+  Serial.println("Main I2C initialized successfully!");
 
-  // Setup interrupt pins
-  pinMode(GPIO_INT1, INPUT_PULLUP);
-  pinMode(GPIO_INT2, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(GPIO_INT1), expander1_ISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(GPIO_INT2), expander2_ISR, FALLING);
-  Serial.println("Interrupts configured on pins 28 and 27");
+  // Initialize PMIC I2C bus
+  Serial.println("Initializing PMIC I2C bus...");
+  Serial.print("PMIC SDA: GPIO");
+  Serial.println(PMIC_SDA);
+  Serial.print("PMIC SCL: GPIO");
+  Serial.println(PMIC_SCL);
 
-  // Configure IST9201_EN pin (pin 15 on expander1) as OUTPUT
-  expander1.pinMode1(IST9201_EN, OUTPUT);
-  Serial.println("IST9201_EN (expander1 pin 15) configured as OUTPUT");
+  if (!WirePmic.begin(PMIC_SDA, PMIC_SCL, 100000)) {
+    Serial.println("ERROR: PMIC I2C initialization failed!");
+    while(1) { delay(1000); }
+  }
+  Serial.println("PMIC I2C initialized successfully!");
 
-  // Enable IST9201 by setting pin HIGH
-  expander1.write1(IST9201_EN, HIGH);
-  Serial.println("IST9201_EN set to HIGH (enabled)");
+  delay(100);
 
-  // Example: Set pins 0-7 of expander1 as outputs, 8-14 as inputs
-  // Note: pin 15 is already configured above for IST9201_EN
-  expander1.pinMode8(0, 0x00);  // Port 0 (pins 0-7): all outputs (0 = OUTPUT)
-  // Port 1 (pins 8-15): pin 15 is output for IST9201_EN, pins 8-14 can be inputs
-  // 0x7F = 0b01111111 (bits 0-6 are INPUT, bit 7 is OUTPUT)
-  expander1.pinMode8(1, 0x7F);
+  // Scan both I2C buses
+  scanI2C(Wire, "Main");
+  scanI2C(WirePmic, "PMIC");
 
-  // Example: Set pins 0-3 of expander2 as outputs, 4-15 as inputs
-  expander2.pinMode8(0, 0xF0);  // Lower 4 bits output, upper 4 input
-  expander2.pinMode8(1, 0xFF);  // Port 1: all inputs
+  // Enable PMIC
+  Serial.println("Setting PMIC_EN HIGH...");
+  digitalWrite(PMIC_EN, HIGH);
+  delay(100);
 
-  Serial.println("Setup complete");
-  */
-  
+  Serial.println("Enabling PMIC...");
+  enablePmic();
+
+  delay(1000);
+
+  Serial.println("Enabling power switches...");
+  powerSwitchEnable();
+
+  Serial.println("Black board setup complete!");
+
+#else
+  #error "No board type defined! Please define GREEN_BOARD or BLACK_BOARD"
+#endif
 }
 
 void loop() {
-  // Check for interrupts from expander1
-  /*if (expander1_interrupt) {
-    expander1_interrupt = false;
-    Serial.println("Expander 1 interrupt detected!");
-
-    // Read the input ports to see what changed
-    uint16_t inputs = expander1.read16();
-    Serial.print("Expander 1 inputs: 0x");
-    Serial.println(inputs, HEX);
-  }
-
-  // Check for interrupts from expander2
-  if (expander2_interrupt) {
-    expander2_interrupt = false;
-    Serial.println("Expander 2 interrupt detected!");
-
-    // Read the input ports to see what changed
-    uint16_t inputs = expander2.read16();
-    Serial.print("Expander 2 inputs: 0x");
-    Serial.println(inputs, HEX);
-  }
-
-  // Example: Toggle pin 0 of expander1
-  static unsigned long lastToggle = 0;
-  if (millis() - lastToggle > 1000) {
-    lastToggle = millis();
-    static bool pinState = false;
-    pinState = !pinState;
-
-    expander1.write1(0, pinState ? HIGH : LOW);
-    Serial.print("Expander 1, Pin 0: ");
-    Serial.println(pinState ? "HIGH" : "LOW");
-  }
-
-  // Example: Write pattern to entire port 0 of expander2
-  static unsigned long lastPattern = 0;
-  if (millis() - lastPattern > 2000) {
-    lastPattern = millis();
-    static uint8_t pattern = 0;
-    expander2.write8(0, pattern++);
-    Serial.print("Expander 2, Port 0 pattern: 0x");
-    Serial.println(pattern - 1, HEX);
-  }
- */   
+  // Main loop
+  delay(1000);
 }

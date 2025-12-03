@@ -13,6 +13,8 @@
 
 //==============  Standard SPI Setting   ==============//
 //Please modify the pin number
+
+#ifdef GREEN_BOARD
 #define SPI_CS0		1
 #define SPI_CS1		2
 #define SPI_CS2		3
@@ -65,8 +67,44 @@
 #define EXP2_EN_1_35V	6
 #define EXP2_EN_NEGATIVE_3_5V	7
 #define EXP2_GAUGE_INT	17
+
+#endif // GREEN_BOARD
+
+#ifdef BLACK_BOARD
+//===============================================
+#define SPI_CS0		15
+#define SPI_CS1		16
+#define SPI_CS2		17
+#define SPI_CS3		18
+#define SPI_CS4		8
+#define SPI_CS5		3
+#define SPI_CS6		9
+#define SPI_CS7		10
+#define SPI_CLK		12
+#define SPI_Data0	45
+#define SPI_Data1	48
+#define SPI_Data2	21
+#define SPI_Data3	14
+
+//==============   GPIO Setting   ==============//
+//Please modify the pin number
+#define EPD_BUSY	6
+#define EPD_RST		7
+#define PMIC_PG		41
+#define PMIC_PS		40 //pin for entering power save mode (IC shutdown)
+#define PMIC_EN		13
+#define PMIC_SCL    11
+#define PMIC_SDA    10
+#define VDDP_SW		1
+#define VDDN_SW		2
+#define VNCP_SW		42
 //===============================================
 
+
+
+
+
+#endif
 
 #define GPIO_LOW	0
 #define GPIO_HIGH	1

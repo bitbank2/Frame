@@ -16,7 +16,13 @@
 
 extern "C" {
 #include "comm.h"
+#include "pmic.h"
 }
+
+#ifdef BLACK_BOARD
+// Create a separate I2C instance for PMIC on black board
+TwoWire WirePmic = TwoWire(0);
+#endif
 
 //=================================================================================================
 // I2C Communication Functions
@@ -35,6 +41,18 @@ unsigned char i2cTransmitData(unsigned char i2cAddress, unsigned char *dataBuffe
         return 0; // Invalid parameters
     }
 
+#ifdef BLACK_BOARD
+    // Black board uses separate I2C bus for PMIC
+    TwoWire* wireInstance = (i2cAddress == PMIC_ADDR) ? &WirePmic : &Wire;
+    wireInstance->beginTransmission(i2cAddress);
+
+    for (unsigned int i = 0; i < dataLength; i++) {
+        wireInstance->write(dataBuffer[i]);
+    }
+
+    unsigned char error = wireInstance->endTransmission();
+#else
+    // Green board uses single I2C bus
     Wire.beginTransmission(i2cAddress);
 
     // Write all bytes from the buffer
@@ -49,6 +67,7 @@ unsigned char i2cTransmitData(unsigned char i2cAddress, unsigned char *dataBuffe
     // 3: received NACK on transmit of data
     // 4: other error
     unsigned char error = Wire.endTransmission();
+#endif
 
     return (error == 0) ? 1 : 0; // Return 1 on success, 0 on failure
 }
@@ -66,6 +85,24 @@ unsigned char i2cReceiveData(unsigned char i2cAddress, unsigned char *dataBuffer
         return 0; // Invalid parameters
     }
 
+#ifdef BLACK_BOARD
+    // Black board uses separate I2C bus for PMIC
+    TwoWire* wireInstance = (i2cAddress == PMIC_ADDR) ? &WirePmic : &Wire;
+    unsigned char bytesReceived = wireInstance->requestFrom(i2cAddress, (uint8_t)dataLength);
+
+    if (bytesReceived != dataLength) {
+        return 0; // Didn't receive expected number of bytes
+    }
+
+    for (unsigned int i = 0; i < dataLength; i++) {
+        if (wireInstance->available()) {
+            dataBuffer[i] = wireInstance->read();
+        } else {
+            return 0; // No more data available
+        }
+    }
+#else
+    // Green board uses single I2C bus
     // Request bytes from I2C slave
     unsigned char bytesReceived = Wire.requestFrom(i2cAddress, (uint8_t)dataLength);
 
@@ -81,6 +118,7 @@ unsigned char i2cReceiveData(unsigned char i2cAddress, unsigned char *dataBuffer
             return 0; // No more data available
         }
     }
+#endif
 
     return 1; // Success
 }
@@ -133,7 +171,7 @@ unsigned char spiReceive(unsigned char commandBuf, unsigned char *dataBuffer, un
 }
 
 //=================================================================================================
-// GPIO Functions (Using Arduino digitalRead/Write)
+// GPIO Functions (Board-specific implementation)
 //=================================================================================================
 
 /**
@@ -143,7 +181,13 @@ unsigned char spiReceive(unsigned char commandBuf, unsigned char *dataBuffer, un
  */
 void setGpioLevel(unsigned char pinNumber, unsigned char voltageLevel)
 {
+#ifdef GREEN_BOARD
+    // For green board, use expander for specific pins
     expander1.write1(pinNumber, voltageLevel);
+#else
+    // For black board, use direct GPIO
+    digitalWrite(pinNumber, voltageLevel);
+#endif
 }
 
 /**

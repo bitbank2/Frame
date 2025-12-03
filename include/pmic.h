@@ -12,6 +12,15 @@
 #ifndef __PMIC_H__
 #define __PMIC_H__
 
+#ifdef __cplusplus
+#include <Wire.h>
+
+#ifdef BLACK_BOARD
+// Black board uses a separate I2C bus for PMIC
+extern TwoWire WirePmic;
+#endif
+#endif
+
 #define PMIC_ADDR	0x48
 
 #define SET_VPOS_VENG2 2
