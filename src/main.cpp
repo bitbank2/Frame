@@ -5,6 +5,7 @@
 extern "C" {
 #include "pmic.h"
 #include "comm.h"
+#include "status.h"
 }
 
 #ifdef GREEN_BOARD
@@ -132,54 +133,49 @@ void gpio_init() {
   digitalWrite(EPD_RST, LOW);
   digitalWrite(PMIC_PS, LOW);
 
-  Serial.println("GPIO pins initialized");
+  printf("GPIO pins initialized\n");
 }
 
-void scanI2C(TwoWire &wire, const char* busName) {
+// I2C Scanner function - unified for both boards
+void scanI2C() {
   byte error, address;
   int deviceCount = 0;
 
-  Serial.print("\n========== ");
-  Serial.print(busName);
-  Serial.println(" I2C Bus Scanner ==========");
-  Serial.println("Scanning I2C bus (addresses 0x01 to 0x7F)...\n");
+  printf("\n========== I2C Bus Scanner ==========\n");
+  printf("Scanning I2C bus (addresses 0x01 to 0x7F)...\n\n");
 
   for(address = 1; address < 127; address++) {
-    wire.beginTransmission(address);
-    error = wire.endTransmission();
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
 
     if (error == 0) {
-      Serial.print("Device found at address 0x");
-      if (address < 16) Serial.print("0");
-      Serial.print(address, HEX);
-      Serial.print(" (");
-      Serial.print(address);
-      Serial.print(")");
+      printf("Device found at address 0x%02X (%d)", address, address);
 
-      if (address == 0x48) {
-        Serial.print(" - PMIC");
+      if (address >= 0x20 && address <= 0x27) {
+        printf(" - Likely TCA9555/TCA9535");
+        if (address == 0x20) printf(" (Expander 1)");
+        if (address == 0x21) printf(" (Expander 2)");
+      } else if (address == 0x48) {
+        printf(" - PMIC");
       } else {
-        Serial.print(" - Unknown device");
+        printf(" - Unknown device");
       }
-      Serial.println();
+      printf("\n");
       deviceCount++;
     }
     else if (error == 4) {
-      Serial.print("Unknown error at address 0x");
-      if (address < 16) Serial.print("0");
-      Serial.println(address, HEX);
+      printf("Unknown error at address 0x%02X\n", address);
     }
   }
 
-  Serial.println("\n====================================");
+  printf("\n====================================\n");
   if (deviceCount == 0) {
-    Serial.println("No I2C devices found!");
-    Serial.println("Check connections and pull-up resistors.");
+    printf("No I2C devices found!\n");
+    printf("Check connections and pull-up resistors.\n");
   } else {
-    Serial.print("Total devices found: ");
-    Serial.println(deviceCount);
+    printf("Total devices found: %d\n", deviceCount);
   }
-  Serial.println("====================================\n");
+  printf("====================================\n\n");
 }
 
 #endif // BLACK_BOARD
@@ -271,54 +267,68 @@ void setup() {
   Serial.println("Green board setup complete!");
 
 #elif defined(BLACK_BOARD)
-  Serial.println("\n\n=== ESP32-S3 BLACK BOARD Starting ===");
-  Serial.println("Board: Black Board with Direct GPIO");
-  Serial.println();
+  printf("\n\n=== ESP32-S3 BLACK BOARD Starting ===\n");
+  printf("Board: Black Board with Direct GPIO\n\n");
 
   // Initialize GPIO pins
   gpio_init();
 
-  // Initialize main I2C bus (for other peripherals if any)
-  Serial.println("Initializing main I2C bus...");
-  if (!Wire.begin()) {
-    Serial.println("ERROR: Main I2C initialization failed!");
+  // Initialize I2C bus
+  printf("Initializing I2C bus...\n");
+  printf("I2C SDA: GPIO%d\n", PMIC_SDA);
+  printf("I2C SCL: GPIO%d\n", PMIC_SCL);
+
+  if (!Wire.begin(PMIC_SDA, PMIC_SCL, 100000)) {
+    printf("ERROR: I2C initialization failed!\n");
     while(1) { delay(1000); }
   }
-  Serial.println("Main I2C initialized successfully!");
-
-  // Initialize PMIC I2C bus
-  Serial.println("Initializing PMIC I2C bus...");
-  Serial.print("PMIC SDA: GPIO");
-  Serial.println(PMIC_SDA);
-  Serial.print("PMIC SCL: GPIO");
-  Serial.println(PMIC_SCL);
-
-  if (!WirePmic.begin(PMIC_SDA, PMIC_SCL, 100000)) {
-    Serial.println("ERROR: PMIC I2C initialization failed!");
-    while(1) { delay(1000); }
-  }
-  Serial.println("PMIC I2C initialized successfully!");
+  printf("I2C initialized successfully!\n");
 
   delay(100);
 
-  // Scan both I2C buses
-  scanI2C(Wire, "Main");
-  scanI2C(WirePmic, "PMIC");
+  // Scan I2C bus
+  scanI2C();
 
   // Enable PMIC
-  Serial.println("Setting PMIC_EN HIGH...");
+  printf("Setting PMIC_EN HIGH...\n");
   digitalWrite(PMIC_EN, HIGH);
   delay(100);
 
-  Serial.println("Enabling PMIC...");
+  printf("Enabling PMIC...\n");
   enablePmic();
 
   delay(1000);
 
-  Serial.println("Enabling power switches...");
+  printf("Enabling power switches...\n");
   powerSwitchEnable();
 
-  Serial.println("Black board setup complete!");
+
+     printf("\n========== Reading PMIC Registers ==========\n");
+
+  unsigned char reg_1B_data[8];
+  unsigned char reg_1C_data[8];
+
+  // Read register 0x1B
+  printf("Reading PMIC register 0x1B...\n");
+  if(readPmicRegister(0x1D, reg_1B_data, 8) == DONE) {
+    printf("Register 0x1B data (8 bytes):\n");
+    for(int i = 0; i < 8; i++) {
+      printf("  Byte %d: 0x%02X (%d)\n", i, reg_1B_data[i], reg_1B_data[i]);
+    }
+  }
+
+  // Read register 0x1C
+  printf("\nReading PMIC register 0x1C...\n");
+  if(readPmicRegister(0x1E, reg_1C_data, 8) == DONE) {
+    printf("Register 0x1C data (8 bytes):\n");
+    for(int i = 0; i < 8; i++) {
+      printf("  Byte %d: 0x%02X (%d)\n", i, reg_1C_data[i], reg_1C_data[i]);
+    }
+  }
+
+  printf("===========================================\n\n");
+
+  printf("Black board setup complete!\n");
 
 #else
   #error "No board type defined! Please define GREEN_BOARD or BLACK_BOARD"

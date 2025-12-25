@@ -224,16 +224,73 @@ unsigned char sendPmicData(unsigned char *dataBuffer, unsigned int dataLength)
     return status;
 }
 
+void recievePmicData(unsigned char *dataBuffer, unsigned int dataLength)
+{
+    unsigned char status;
+    if(i2cReceiveData(PMIC_ADDR, dataBuffer, dataLength))
+    {
+#if SHOW_LOG
+    printf("Complete I2C data receiving. \r\n");
+#endif
+    }
+    else
+    {
+#if SHOW_LOG
+    printf("Error receiving I2C data. \r\n");
+#endif
+    }
+    // Not used in current implementation
+}
+
+unsigned char readPmicRegister(unsigned char registerAddress, unsigned char *dataBuffer, unsigned int dataLength)
+{
+    // First, write the register address we want to read from
+    if(!i2cTransmitData(PMIC_ADDR, &registerAddress, 1))
+    {
+        printf("Error: Failed to set PMIC register address 0x%02X\n", registerAddress);
+        return ERROR;
+    }
+
+    // Then, read the data from that register
+    if(i2cReceiveData(PMIC_ADDR, dataBuffer, dataLength))
+    {
+        printf("Successfully read %d bytes from PMIC register 0x%02X\n", dataLength, registerAddress);
+        return DONE;
+    }
+    else
+    {
+        printf("Error: Failed to read from PMIC register 0x%02X\n", registerAddress);
+        return ERROR;
+    }
+}
+
 void enablePmic(void)
 {
 	if(setPmic()==DONE)
 	{
 		delayms(100);
 		powerSwitchEnable();
-	    while(!(getGpioLevel(PMIC_PG)));//Waiting for the PMIC_PG is the high level.
+
+		// Wait for PMIC_PG with timeout (max 5 seconds)
+		int timeout = 5000; // 5 seconds timeout
+		int elapsed = 0;
+		printf("Waiting for PMIC_PG to go HIGH...\n");
+		while(!(getGpioLevel(PMIC_PG))) {
+			delayms(10);
+			elapsed += 10;
+			if(elapsed >= timeout) {
+				printf("ERROR: PMIC_PG timeout! PMIC did not reach power good state.\n");
+				printf("PMIC_PG pin state: %d (should be 1)\n", getGpioLevel(PMIC_PG));
+				return; // Exit instead of hanging forever
+			}
+			if(elapsed % 500 == 0) {
+				printf("Still waiting for PMIC_PG... (%d ms)\n", elapsed);
+			}
+		}
+		printf("PMIC_PG is HIGH - Power good!\n");
 #if SHOW_LOG
     printf("enablePmic() done. \r\n");
-#endif	
+#endif
 	}
 	else
 	{
