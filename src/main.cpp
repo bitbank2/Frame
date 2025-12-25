@@ -4,6 +4,7 @@
 #include "pindefine.h"
 #include "globals.h"
 #include "pmic.h"
+#include "status.h"
 
 
 // Define pins for ESP32-C5
@@ -173,32 +174,36 @@ void setup() {
   
   enablePmic();
 
-
   delay(2000);
 
   scanI2C();
 
-  powerSwitchEnable();
+  // Read PMIC registers 0x1B and 0x1C
+  printf("\n========== Reading PMIC Registers ==========\n");
 
-  // Initialize expander 2
-  Serial.println("Initializing Expander 2 (0x21)...");
-  if (expander2.begin()) {
-    Serial.println("Expander 2 initialized successfully");
-  } else {
-    Serial.println("ERROR: Failed to initialize Expander 2");
-    while(1) { delay(1000); }
+  unsigned char reg_1B_data[8];
+  unsigned char reg_1C_data[8];
+
+  // Read register 0x1B
+  printf("Reading PMIC register 0x1B...\n");
+  if(readPmicRegister(0x1D, reg_1B_data, 8) == DONE) {
+    printf("Register 0x1B data (8 bytes):\n");
+    for(int i = 0; i < 8; i++) {
+      printf("  Byte %d: 0x%02X (%d)\n", i, reg_1B_data[i], reg_1B_data[i]);
+    }
   }
-  Serial.println("Expander 2 pin P05 configured as OUTPUT");
 
-  // Set pin 5 HIGH
-  
+  // Read register 0x1C
+  printf("\nReading PMIC register 0x1C...\n");
+  if(readPmicRegister(0x1E, reg_1C_data, 8) == DONE) {
+    printf("Register 0x1C data (8 bytes):\n");
+    for(int i = 0; i < 8; i++) {
+      printf("  Byte %d: 0x%02X (%d)\n", i, reg_1C_data[i], reg_1C_data[i]);
+    }
+  }
 
-  //
+  printf("===========================================\n\n");
 
-  Serial.println("Expander 2 pin P05 set to HIGH");
-
-
-  // Initialize first expander
   // begin() sets all pins as inputs by default
   /*
   if (expander1.begin()) {

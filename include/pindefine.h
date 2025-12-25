@@ -31,8 +31,8 @@
 //Please modify the pin number
 #define EPD_BUSY	4
 #define EPD_RST		5
-#define PMIC_PG		16
-#define PMIC_PS		17 //pin for entering power save mode (IC shutdown)
+#define PMIC_PG		26
+#define PMIC_PS		25 //pin for entering power save mode (IC shutdown)
 //===============================================
 
 

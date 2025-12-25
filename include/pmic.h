@@ -30,6 +30,7 @@ extern "C" {
 
 extern unsigned char setPmic(void);
 extern unsigned char sendPmicData(unsigned char *dataBuffer, unsigned int dataLength);
+extern unsigned char readPmicRegister(unsigned char registerAddress, unsigned char *dataBuffer, unsigned int dataLength);
 extern void enablePmic(void);
 extern void disablePmic(void);
 extern void powerSwitchEnable(void);
