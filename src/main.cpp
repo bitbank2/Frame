@@ -244,59 +244,23 @@ void setup() {
 
   enablePmic();
 
-  printf("\n========== Reading PMIC Registers ==========\n");
+  printf("\n========== Reading PMIC Registers 1 ==========\n");
 
-  unsigned char reg_data[8] = {0};
-  unsigned char empty_data[9];
+  unsigned char reg_data_0x1D = 0;
+  unsigned char reg_data_0x1E = 0;
 
-  // Prepare data for 0x1D: register address + 8 empty bytes
-  empty_data[0] = 0x1D;
-  for(int i = 1; i < 9; i++) {
-    empty_data[i] = 0x00;
-  }
-
-  // Send empty 8 bytes to register 0x1D to trigger measurement
-  printf("Sending 8 empty bytes to PMIC register 0x1D...\n");
-  if(sendPmicData(empty_data, 9) == DONE) {
-    printf("Successfully sent command to 0x1D\n");
-  }
-
-  // Wait for PMIC to prepare data
-  delay(100);
-
-  // Read 8 bytes from register 0x1D
-  printf("Reading 8 bytes from PMIC register 0x1D...\n");
-  if(readPmicRegister(0x1D, reg_data, 8) == DONE) {
-    printf("Data from register 0x1D (8 bytes):\n");
-    for(int i = 0; i < 8; i++) {
-      printf("  Byte %d: 0x%02X (%d)\n", i, reg_data[i], reg_data[i]);
-    }
+  // Read 1 byte from register 0x1D
+  printf("Reading from PMIC register 0x1D...\n");
+  if(readPmicRegister(0x1D, &reg_data_0x1D, 1) == DONE) {
+    printf("Register 0x1D: 0x%02X (%d)\n", reg_data_0x1D, reg_data_0x1D);
   }
 
   printf("\n");
 
-  // Prepare data for 0x1E: register address + 8 empty bytes
-  empty_data[0] = 0x1E;
-  for(int i = 1; i < 9; i++) {
-    empty_data[i] = 0x00;
-  }
-
-  // Send empty 8 bytes to register 0x1E to trigger measurement
-  printf("Sending 8 empty bytes to PMIC register 0x1E...\n");
-  if(sendPmicData(empty_data, 9) == DONE) {
-    printf("Successfully sent command to 0x1E\n");
-  }
-
-  // Wait for PMIC to prepare data
-  delay(100);
-
-  // Read 8 bytes from register 0x1E
-  printf("Reading 8 bytes from PMIC register 0x1E...\n");
-  if(readPmicRegister(0x1E, reg_data, 8) == DONE) {
-    printf("Data from register 0x1E (8 bytes):\n");
-    for(int i = 0; i < 8; i++) {
-      printf("  Byte %d: 0x%02X (%d)\n", i, reg_data[i], reg_data[i]);
-    }
+  // Read 1 byte from register 0x1E
+  printf("Reading from PMIC register 0x1E...\n");
+  if(readPmicRegister(0x1E, &reg_data_0x1E, 1) == DONE) {
+    printf("Register 0x1E: 0x%02X (%d)\n", reg_data_0x1E, reg_data_0x1E);
   }
 
   printf("===========================================\n\n");
@@ -304,9 +268,6 @@ void setup() {
   printf("Black board setup complete!\n");
 
   delay(1000);
-
-
-  printf("Black board setup complete!\n");
 
 #else
   #error "No board type defined! Please define GREEN_BOARD or BLACK_BOARD"
