@@ -178,28 +178,24 @@ void setup() {
 
   scanI2C();
 
-  // Read PMIC registers 0x1B and 0x1C
+  // Read PMIC registers 0x1D and 0x1E
   printf("\n========== Reading PMIC Registers ==========\n");
 
-  unsigned char reg_1B_data[8];
-  unsigned char reg_1C_data[8];
+  unsigned char reg_data_0x1D = 0;
+  unsigned char reg_data_0x1E = 0;
 
-  // Read register 0x1B
-  printf("Reading PMIC register 0x1B...\n");
-  if(readPmicRegister(0x1D, reg_1B_data, 8) == DONE) {
-    printf("Register 0x1B data (8 bytes):\n");
-    for(int i = 0; i < 8; i++) {
-      printf("  Byte %d: 0x%02X (%d)\n", i, reg_1B_data[i], reg_1B_data[i]);
-    }
+  // Read 1 byte from register 0x1D
+  printf("Reading from PMIC register 0x1D...\n");
+  if(readPmicRegister(0x1D, &reg_data_0x1D, 1) == DONE) {
+    printf("Register 0x1D: 0x%02X (%d)\n", reg_data_0x1D, reg_data_0x1D);
   }
 
-  // Read register 0x1C
-  printf("\nReading PMIC register 0x1C...\n");
-  if(readPmicRegister(0x1E, reg_1C_data, 8) == DONE) {
-    printf("Register 0x1C data (8 bytes):\n");
-    for(int i = 0; i < 8; i++) {
-      printf("  Byte %d: 0x%02X (%d)\n", i, reg_1C_data[i], reg_1C_data[i]);
-    }
+  printf("\n");
+
+  // Read 1 byte from register 0x1E
+  printf("Reading from PMIC register 0x1E...\n");
+  if(readPmicRegister(0x1E, &reg_data_0x1E, 1) == DONE) {
+    printf("Register 0x1E: 0x%02X (%d)\n", reg_data_0x1E, reg_data_0x1E);
   }
 
   printf("===========================================\n\n");
