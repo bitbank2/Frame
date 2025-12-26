@@ -8,6 +8,47 @@ extern "C" {
 #include "status.h"
 }
 
+
+void scanI2C() {
+  byte error, address;
+  int deviceCount = 0;
+
+  printf("\n========== I2C Bus Scanner ==========\n");
+  printf("Scanning I2C bus (addresses 0x01 to 0x7F)...\n\n");
+
+  for(address = 1; address < 127; address++) {
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+
+    if (error == 0) {
+      printf("Device found at address 0x%02X (%d)", address, address);
+
+      if (address >= 0x20 && address <= 0x27) {
+        printf(" - Likely TCA9555/TCA9535");
+        if (address == 0x20) printf(" (Expander 1)");
+        if (address == 0x21) printf(" (Expander 2)");
+      } else if (address == 0x48) {
+        printf(" - PMIC");
+      } else {
+        printf(" - Unknown device");
+      }
+      printf("\n");
+      deviceCount++;
+    }
+    else if (error == 4) {
+      printf("Unknown error at address 0x%02X\n", address);
+    }
+  }
+
+  printf("\n====================================\n");
+  if (deviceCount == 0) {
+    printf("No I2C devices found!\n");
+    printf("Check connections and pull-up resistors.\n");
+  } else {
+    printf("Total devices found: %d\n", deviceCount);
+  }
+  printf("====================================\n\n");
+}
 #ifdef GREEN_BOARD
 #include "TCA9555.h"
 #include "globals.h"
@@ -57,55 +98,8 @@ void IRAM_ATTR expander2_ISR() {
   expander2_interrupt = true;
 }
 
-// I2C Scanner function
-void scanI2C() {
-  byte error, address;
-  int deviceCount = 0;
+// I2C Scanner function - unified for both boards
 
-  Serial.println("\n========== I2C Bus Scanner ==========");
-  Serial.println("Scanning I2C bus (addresses 0x01 to 0x7F)...\n");
-
-  for(address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission();
-
-    if (error == 0) {
-      Serial.print("Device found at address 0x");
-      if (address < 16) Serial.print("0");
-      Serial.print(address, HEX);
-      Serial.print(" (");
-      Serial.print(address);
-      Serial.print(")");
-
-      if (address >= 0x20 && address <= 0x27) {
-        Serial.print(" - Likely TCA9555/TCA9535");
-        if (address == 0x20) Serial.print(" (Expander 1)");
-        if (address == 0x21) Serial.print(" (Expander 2)");
-      } else if (address == 0x48) {
-        Serial.print(" - PMIC");
-      } else {
-        Serial.print(" - Unknown device");
-      }
-      Serial.println();
-      deviceCount++;
-    }
-    else if (error == 4) {
-      Serial.print("Unknown error at address 0x");
-      if (address < 16) Serial.print("0");
-      Serial.println(address, HEX);
-    }
-  }
-
-  Serial.println("\n====================================");
-  if (deviceCount == 0) {
-    Serial.println("No I2C devices found!");
-    Serial.println("Check connections and pull-up resistors.");
-  } else {
-    Serial.print("Total devices found: ");
-    Serial.println(deviceCount);
-  }
-  Serial.println("====================================\n");
-}
 
 #endif // GREEN_BOARD
 
@@ -118,64 +112,26 @@ void gpio_init() {
   pinMode(VDDP_SW, OUTPUT);
   pinMode(VDDN_SW, OUTPUT);
   pinMode(VNCP_SW, OUTPUT);
-  pinMode(EPD_RST, OUTPUT);
   pinMode(PMIC_PS, OUTPUT);
 
+  pinMode(45,OUTPUT);
+  pinMode(21, OUTPUT);
+
+
   // Initialize input pins
-  pinMode(PMIC_PG, INPUT);
   pinMode(EPD_BUSY, INPUT);
+  pinMode(PMIC_PG, INPUT);
 
   // Set initial states
-  digitalWrite(PMIC_EN, LOW);
-  digitalWrite(VDDP_SW, LOW);
-  digitalWrite(VDDN_SW, LOW);
-  digitalWrite(VNCP_SW, LOW);
-  digitalWrite(EPD_RST, LOW);
+  digitalWrite(21,HIGH);
+  digitalWrite(45,HIGH);
+  digitalWrite(PMIC_EN, HIGH);
+  digitalWrite(VDDP_SW, HIGH);
+  digitalWrite(VDDN_SW, HIGH);
+  digitalWrite(VNCP_SW, HIGH);
   digitalWrite(PMIC_PS, LOW);
 
   printf("GPIO pins initialized\n");
-}
-
-// I2C Scanner function - unified for both boards
-void scanI2C() {
-  byte error, address;
-  int deviceCount = 0;
-
-  printf("\n========== I2C Bus Scanner ==========\n");
-  printf("Scanning I2C bus (addresses 0x01 to 0x7F)...\n\n");
-
-  for(address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission();
-
-    if (error == 0) {
-      printf("Device found at address 0x%02X (%d)", address, address);
-
-      if (address >= 0x20 && address <= 0x27) {
-        printf(" - Likely TCA9555/TCA9535");
-        if (address == 0x20) printf(" (Expander 1)");
-        if (address == 0x21) printf(" (Expander 2)");
-      } else if (address == 0x48) {
-        printf(" - PMIC");
-      } else {
-        printf(" - Unknown device");
-      }
-      printf("\n");
-      deviceCount++;
-    }
-    else if (error == 4) {
-      printf("Unknown error at address 0x%02X\n", address);
-    }
-  }
-
-  printf("\n====================================\n");
-  if (deviceCount == 0) {
-    printf("No I2C devices found!\n");
-    printf("Check connections and pull-up resistors.\n");
-  } else {
-    printf("Total devices found: %d\n", deviceCount);
-  }
-  printf("====================================\n\n");
 }
 
 #endif // BLACK_BOARD
@@ -274,11 +230,8 @@ void setup() {
   gpio_init();
 
   // Initialize I2C bus
-  printf("Initializing I2C bus...\n");
-  printf("I2C SDA: GPIO%d\n", PMIC_SDA);
-  printf("I2C SCL: GPIO%d\n", PMIC_SCL);
 
-  if (!Wire.begin(PMIC_SDA, PMIC_SCL, 100000)) {
+  if (!Wire.begin(PMIC_SDA, PMIC_SCL,100000)) {
     printf("ERROR: I2C initialization failed!\n");
     while(1) { delay(1000); }
   }
@@ -289,44 +242,69 @@ void setup() {
   // Scan I2C bus
   scanI2C();
 
-  // Enable PMIC
-  printf("Setting PMIC_EN HIGH...\n");
-  digitalWrite(PMIC_EN, HIGH);
-  delay(100);
-
-  printf("Enabling PMIC...\n");
   enablePmic();
 
-  delay(1000);
+  printf("\n========== Reading PMIC Registers ==========\n");
 
-  printf("Enabling power switches...\n");
-  powerSwitchEnable();
+  unsigned char reg_data[8] = {0};
+  unsigned char empty_data[9];
 
+  // Prepare data for 0x1D: register address + 8 empty bytes
+  empty_data[0] = 0x1D;
+  for(int i = 1; i < 9; i++) {
+    empty_data[i] = 0x00;
+  }
 
-     printf("\n========== Reading PMIC Registers ==========\n");
+  // Send empty 8 bytes to register 0x1D to trigger measurement
+  printf("Sending 8 empty bytes to PMIC register 0x1D...\n");
+  if(sendPmicData(empty_data, 9) == DONE) {
+    printf("Successfully sent command to 0x1D\n");
+  }
 
-  unsigned char reg_1B_data[8];
-  unsigned char reg_1C_data[8];
+  // Wait for PMIC to prepare data
+  delay(100);
 
-  // Read register 0x1B
-  printf("Reading PMIC register 0x1B...\n");
-  if(readPmicRegister(0x1D, reg_1B_data, 8) == DONE) {
-    printf("Register 0x1B data (8 bytes):\n");
+  // Read 8 bytes from register 0x1D
+  printf("Reading 8 bytes from PMIC register 0x1D...\n");
+  if(readPmicRegister(0x1D, reg_data, 8) == DONE) {
+    printf("Data from register 0x1D (8 bytes):\n");
     for(int i = 0; i < 8; i++) {
-      printf("  Byte %d: 0x%02X (%d)\n", i, reg_1B_data[i], reg_1B_data[i]);
+      printf("  Byte %d: 0x%02X (%d)\n", i, reg_data[i], reg_data[i]);
     }
   }
 
-  // Read register 0x1C
-  printf("\nReading PMIC register 0x1C...\n");
-  if(readPmicRegister(0x1E, reg_1C_data, 8) == DONE) {
-    printf("Register 0x1C data (8 bytes):\n");
+  printf("\n");
+
+  // Prepare data for 0x1E: register address + 8 empty bytes
+  empty_data[0] = 0x1E;
+  for(int i = 1; i < 9; i++) {
+    empty_data[i] = 0x00;
+  }
+
+  // Send empty 8 bytes to register 0x1E to trigger measurement
+  printf("Sending 8 empty bytes to PMIC register 0x1E...\n");
+  if(sendPmicData(empty_data, 9) == DONE) {
+    printf("Successfully sent command to 0x1E\n");
+  }
+
+  // Wait for PMIC to prepare data
+  delay(100);
+
+  // Read 8 bytes from register 0x1E
+  printf("Reading 8 bytes from PMIC register 0x1E...\n");
+  if(readPmicRegister(0x1E, reg_data, 8) == DONE) {
+    printf("Data from register 0x1E (8 bytes):\n");
     for(int i = 0; i < 8; i++) {
-      printf("  Byte %d: 0x%02X (%d)\n", i, reg_1C_data[i], reg_1C_data[i]);
+      printf("  Byte %d: 0x%02X (%d)\n", i, reg_data[i], reg_data[i]);
     }
   }
 
   printf("===========================================\n\n");
+
+  printf("Black board setup complete!\n");
+
+  delay(1000);
+
 
   printf("Black board setup complete!\n");
 

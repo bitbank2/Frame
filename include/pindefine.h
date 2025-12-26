@@ -83,7 +83,7 @@
 #define SPI_CLK		12
 #define SPI_Data0	45
 #define SPI_Data1	48
-#define SPI_Data2	21
+#define SPI_Data2	13
 #define SPI_Data3	14
 
 //==============   GPIO Setting   ==============//
@@ -92,9 +92,9 @@
 #define EPD_RST		7
 #define PMIC_PG		41
 #define PMIC_PS		40 //pin for entering power save mode (IC shutdown)
-#define PMIC_EN		13
-#define PMIC_SCL    11
-#define PMIC_SDA    10
+#define PMIC_EN		21
+#define PMIC_SCL    38 // 38 PMIC I2C SCL 11 Expander SCL
+#define PMIC_SDA    39 //39 PMIC I2C SDA 10 Expander SDA
 #define VDDP_SW		1
 #define VDDN_SW		2
 #define VNCP_SW		42

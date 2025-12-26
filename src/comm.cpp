@@ -19,10 +19,7 @@ extern "C" {
 #include "pmic.h"
 }
 
-#ifdef BLACK_BOARD
-// Create a separate I2C instance for PMIC on black board
-TwoWire WirePmic = TwoWire(0);
-#endif
+// Both boards now use the unified Wire instance
 
 //=================================================================================================
 // I2C Communication Functions
@@ -41,18 +38,7 @@ unsigned char i2cTransmitData(unsigned char i2cAddress, unsigned char *dataBuffe
         return 0; // Invalid parameters
     }
 
-#ifdef BLACK_BOARD
-    // Black board uses separate I2C bus for PMIC
-    TwoWire* wireInstance = (i2cAddress == PMIC_ADDR) ? &WirePmic : &Wire;
-    wireInstance->beginTransmission(i2cAddress);
-
-    for (unsigned int i = 0; i < dataLength; i++) {
-        wireInstance->write(dataBuffer[i]);
-    }
-
-    unsigned char error = wireInstance->endTransmission();
-#else
-    // Green board uses single I2C bus
+    // Both boards use unified Wire instance
     Wire.beginTransmission(i2cAddress);
 
     // Write all bytes from the buffer
@@ -67,7 +53,6 @@ unsigned char i2cTransmitData(unsigned char i2cAddress, unsigned char *dataBuffe
     // 3: received NACK on transmit of data
     // 4: other error
     unsigned char error = Wire.endTransmission();
-#endif
 
     return (error == 0) ? 1 : 0; // Return 1 on success, 0 on failure
 }
@@ -85,24 +70,7 @@ unsigned char i2cReceiveData(unsigned char i2cAddress, unsigned char *dataBuffer
         return 0; // Invalid parameters
     }
 
-#ifdef BLACK_BOARD
-    // Black board uses separate I2C bus for PMIC
-    TwoWire* wireInstance = (i2cAddress == PMIC_ADDR) ? &WirePmic : &Wire;
-    unsigned char bytesReceived = wireInstance->requestFrom(i2cAddress, (uint8_t)dataLength);
-
-    if (bytesReceived != dataLength) {
-        return 0; // Didn't receive expected number of bytes
-    }
-
-    for (unsigned int i = 0; i < dataLength; i++) {
-        if (wireInstance->available()) {
-            dataBuffer[i] = wireInstance->read();
-        } else {
-            return 0; // No more data available
-        }
-    }
-#else
-    // Green board uses single I2C bus
+    // Both boards use unified Wire instance
     // Request bytes from I2C slave
     unsigned char bytesReceived = Wire.requestFrom(i2cAddress, (uint8_t)dataLength);
 
@@ -118,7 +86,6 @@ unsigned char i2cReceiveData(unsigned char i2cAddress, unsigned char *dataBuffer
             return 0; // No more data available
         }
     }
-#endif
 
     return 1; // Success
 }
