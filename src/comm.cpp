@@ -12,10 +12,36 @@
 
 #include <Arduino.h>
 #include <Wire.h>
+#include <SPI.h>
 #include "globals.h"
+#include "pindefine.h"
 
 extern "C" {
 #include "comm.h"
+}
+
+// SPI configuration for ESP32-C5
+// Using hardware SPI with pins defined in pindefine.h
+#define EPD_SPI_CLOCK   SPI_CLK     // GPIO 5
+#define EPD_SPI_MOSI    SPI_Data0   // GPIO 9
+#define EPD_SPI_MISO    SPI_Data1   // GPIO 10
+
+// SPI settings
+static SPISettings spiSettings(4000000, MSBFIRST, SPI_MODE0);  // 4MHz, MSB first, Mode 0
+static bool spiInitialized = false;
+
+/**
+ * @brief Initialize SPI for EPD communication
+ */
+void spiInit(void)
+{
+    if (!spiInitialized) {
+        // Initialize SPI with custom pins for ESP32-C5
+        SPI.begin(EPD_SPI_CLOCK, EPD_SPI_MISO, EPD_SPI_MOSI, -1);  // -1 = no hardware CS
+        spiInitialized = true;
+        printf("SPI initialized: CLK=%d, MOSI=%d, MISO=%d\n",
+               EPD_SPI_CLOCK, EPD_SPI_MOSI, EPD_SPI_MISO);
+    }
 }
 
 //=================================================================================================
@@ -99,37 +125,132 @@ void delayms(unsigned int delayTime)
 }
 
 //=================================================================================================
-// SPI Communication Functions (Placeholder - implement based on your hardware)
+// SPI Communication Functions for E2803 EPD Driver
 //=================================================================================================
 
+/**
+ * @brief Transmit a command byte via SPI
+ * @param commandBuf: Command byte to send
+ * @return 1 on success
+ */
 unsigned char spiTransmitCommand(unsigned char commandBuf)
 {
-    // TODO: Implement SPI command transmit based on your hardware
-    return 0;
+    if (!spiInitialized) spiInit();
+
+    SPI.beginTransaction(spiSettings);
+    SPI.transfer(commandBuf);
+    SPI.endTransaction();
+
+    return 1;
 }
 
+/**
+ * @brief Transmit data bytes via SPI
+ * @param dataBuffer: Pointer to data buffer
+ * @param dataLength: Number of bytes to send
+ * @return 1 on success
+ */
 unsigned char spiTransmitData(unsigned char *dataBuffer, unsigned long dataLength)
 {
-    // TODO: Implement SPI data transmit based on your hardware
-    return 0;
+    if (!spiInitialized) spiInit();
+    if (dataBuffer == NULL || dataLength == 0) return 0;
+
+    SPI.beginTransaction(spiSettings);
+    for (unsigned long i = 0; i < dataLength; i++) {
+        SPI.transfer(dataBuffer[i]);
+    }
+    SPI.endTransaction();
+
+    return 1;
 }
 
+/**
+ * @brief Transmit command followed by large data buffer
+ * @param commandBuf: Command byte
+ * @param dataBuffer: Pointer to data buffer
+ * @param dataLength: Number of data bytes
+ * @return 1 on success
+ */
 unsigned char spiTransmitLargeData(unsigned char commandBuf, unsigned char *dataBuffer, unsigned long dataLength)
 {
-    // TODO: Implement SPI large data transmit based on your hardware
-    return 0;
+    if (!spiInitialized) spiInit();
+    if (dataBuffer == NULL || dataLength == 0) return 0;
+
+    SPI.beginTransaction(spiSettings);
+
+    // Send command
+    SPI.transfer(commandBuf);
+
+    // Send data in chunks for better performance
+    const unsigned long chunkSize = 4096;
+    unsigned long remaining = dataLength;
+    unsigned long offset = 0;
+
+    while (remaining > 0) {
+        unsigned long bytesToSend = (remaining > chunkSize) ? chunkSize : remaining;
+        SPI.transfer(&dataBuffer[offset], bytesToSend);
+        offset += bytesToSend;
+        remaining -= bytesToSend;
+    }
+
+    SPI.endTransaction();
+
+    return 1;
 }
 
+/**
+ * @brief Transmit command and data via SPI
+ * @param commandBuf: Command byte
+ * @param dataBuffer: Pointer to data buffer
+ * @param dataLength: Number of data bytes
+ * @return 1 on success
+ */
 unsigned char spiTransmit(unsigned char commandBuf, unsigned char *dataBuffer, unsigned int dataLength)
 {
-    // TODO: Implement SPI transmit based on your hardware
-    return 0;
+    if (!spiInitialized) spiInit();
+
+    SPI.beginTransaction(spiSettings);
+
+    // Send command
+    SPI.transfer(commandBuf);
+
+    // Send data if provided
+    if (dataBuffer != NULL && dataLength > 0) {
+        for (unsigned int i = 0; i < dataLength; i++) {
+            SPI.transfer(dataBuffer[i]);
+        }
+    }
+
+    SPI.endTransaction();
+
+    return 1;
 }
 
+/**
+ * @brief Receive data via SPI after sending command
+ * @param commandBuf: Command byte to send
+ * @param dataBuffer: Pointer to buffer for received data
+ * @param dataLength: Number of bytes to receive
+ * @return 1 on success
+ */
 unsigned char spiReceive(unsigned char commandBuf, unsigned char *dataBuffer, unsigned int dataLength)
 {
-    // TODO: Implement SPI receive based on your hardware
-    return 0;
+    if (!spiInitialized) spiInit();
+    if (dataBuffer == NULL || dataLength == 0) return 0;
+
+    SPI.beginTransaction(spiSettings);
+
+    // Send command
+    SPI.transfer(commandBuf);
+
+    // Receive data
+    for (unsigned int i = 0; i < dataLength; i++) {
+        dataBuffer[i] = SPI.transfer(0x00);  // Send dummy byte to receive
+    }
+
+    SPI.endTransaction();
+
+    return 1;
 }
 
 //=================================================================================================

@@ -11,8 +11,16 @@
 #ifndef __PINDEFINE_H__
 #define __PINDEFINE_H__
 
-//==============  Standard SPI Setting   ==============//
-//Please modify the pin number
+//==============  ESP32-C5 SPI Pin Setting   ==============//
+// Hardware SPI pins for EPD communication
+// Note: CS pins are managed via TCA9555 I/O expanders
+#define SPI_CLK		9 // ESP32-C5 SPI Clock
+#define SPI_Data0	10    // ESP32-C5 SPI MOSI
+#define SPI_Data1	8    // ESP32-C5 SPI MISO
+#define SPI_Data2	7   // Reserved for QSPI
+#define SPI_Data3	6   // Reserved for QSPI
+
+// Legacy CS pin definitions (not used - CS is via TCA9555 expanders)
 #define SPI_CS0		1
 #define SPI_CS1		2
 #define SPI_CS2		3
@@ -21,18 +29,13 @@
 #define SPI_CS5		16
 #define SPI_CS6		17
 #define SPI_CS7		18
-#define SPI_CLK		5
-#define SPI_Data0	9
-#define SPI_Data1	10
-#define SPI_Data2	23
-#define SPI_Data3	24
 
-//==============   GPIO Setting   ==============//
-//Please modify the pin number
-#define EPD_BUSY	4
-#define EPD_RST		5
-#define PMIC_PG		26
-#define PMIC_PS		25 //pin for entering power save mode (IC shutdown)
+//==============   ESP32-C5 GPIO Setting   ==============//
+// Direct GPIO pins on ESP32-C5 MCU
+#define EPD_BUSY	4    // EPD busy signal input
+#define EPD_RST		5    // EPD reset output
+#define PMIC_PG		26   // PMIC power good input
+#define PMIC_PS		25   // PMIC power save mode control
 //===============================================
 
 
@@ -46,12 +49,12 @@
 #define EXP1_SPI2_CS2	5
 #define EXP1_SPI2_CS1	6
 #define EXP1_SPI2_CS0	7
-#define EXP1_PMIC_EN	15
-#define EXP1_CS_SD_CARD	10
-#define EXP1_EN_V5A 11
-#define EXP1_VDDN_EN 12
-#define EXP1_VDDP_EN 13
-#define EXP1_VNCP_EN 14
+#define EXP1_PMIC_EN	13
+#define EXP1_CS_SD_CARD	8
+#define EXP1_EN_V5A 9
+#define EXP1_VDDN_EN 10
+#define EXP1_VDDP_EN 11
+#define EXP1_VNCP_EN 12
 //===============================================
 
 //==============   Expander 2 GPIO Setting   ==============//
@@ -64,7 +67,7 @@
 #define EXP2_EN_DC12	5
 #define EXP2_EN_1_35V	6
 #define EXP2_EN_NEGATIVE_3_5V	7
-#define EXP2_GAUGE_INT	17
+#define EXP2_GAUGE_INT	13
 //===============================================
 
 

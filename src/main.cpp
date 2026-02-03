@@ -1,10 +1,16 @@
 #include <Arduino.h>
 #include <Wire.h>
+#include <SPI.h>
 #include "TCA9555.h"
 #include "pindefine.h"
 #include "globals.h"
 #include "pmic.h"
 #include "status.h"
+
+extern "C" {
+#include "epd.h"
+#include "comm.h"
+}
 
 
 // Define pins for ESP32-C5
@@ -42,6 +48,7 @@ void expanders_voltage_gpio_init(){
 }
 
 void gpio_cs_pins_init(){
+  // Initialize all SPI chip select pins as outputs (active low, so start HIGH)
   expander1.pinMode1(EXP1_SPI1_CS3, OUTPUT);
   expander1.pinMode1(EXP1_SPI1_CS2, OUTPUT);
   expander1.pinMode1(EXP1_SPI1_CS1, OUTPUT);
@@ -50,6 +57,27 @@ void gpio_cs_pins_init(){
   expander1.pinMode1(EXP1_SPI2_CS2, OUTPUT);
   expander1.pinMode1(EXP1_SPI2_CS1, OUTPUT);
   expander1.pinMode1(EXP1_SPI2_CS0, OUTPUT);
+
+  // Set all CS pins HIGH (inactive)
+  expander1.write1(EXP1_SPI1_CS0, HIGH);
+  expander1.write1(EXP1_SPI1_CS1, HIGH);
+  expander1.write1(EXP1_SPI1_CS2, HIGH);
+  expander1.write1(EXP1_SPI1_CS3, HIGH);
+  expander1.write1(EXP1_SPI2_CS0, HIGH);
+  expander1.write1(EXP1_SPI2_CS1, HIGH);
+  expander1.write1(EXP1_SPI2_CS2, HIGH);
+  expander1.write1(EXP1_SPI2_CS3, HIGH);
+}
+
+void epd_gpio_init(){
+  // Initialize EPD control pins on ESP32-C5
+  pinMode(EPD_RST, OUTPUT);
+  pinMode(EPD_BUSY, INPUT);
+
+  // Set reset pin HIGH (not in reset)
+  digitalWrite(EPD_RST, HIGH);
+
+  Serial.println("EPD GPIO initialized: RST=OUTPUT, BUSY=INPUT");
 }
 // Interrupt service routines
 void IRAM_ATTR expander1_ISR() {
@@ -199,6 +227,27 @@ void setup() {
   }
 
   printf("===========================================\n\n");
+
+  // Initialize EPD GPIO pins
+  epd_gpio_init();
+
+  // Initialize SPI CS pins on expander
+  gpio_cs_pins_init();
+
+  // Initialize SPI
+  spiInit();
+
+  // Initialize EPD driver ICs
+  printf("\n========== Initializing EPD ==========\n");
+  epdInit();
+
+  // Check driver IC status
+  if(epdCheckDriverICStatus() == DONE) {
+    printf("All driver ICs are ready!\n");
+  } else {
+    printf("WARNING: Some driver ICs did not respond\n");
+  }
+  printf("======================================\n\n");
 
   // begin() sets all pins as inputs by default
   /*

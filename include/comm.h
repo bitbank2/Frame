@@ -21,14 +21,22 @@
 #define __COMM_EXTERN__ extern
 #endif
 
+// Delay function
 __COMM_EXTERN__ void delayms(unsigned int delayTime);
+
+// SPI communication functions
+__COMM_EXTERN__ void spiInit(void);
 __COMM_EXTERN__ unsigned char spiTransmitCommand(unsigned char commandBuf);
 __COMM_EXTERN__ unsigned char spiTransmitData(unsigned char *dataBuffer, unsigned long dataLength);
 __COMM_EXTERN__ unsigned char spiTransmitLargeData(unsigned char commandBuf, unsigned char *dataBuffer, unsigned long dataLength);
 __COMM_EXTERN__ unsigned char spiTransmit(unsigned char commandBuf, unsigned char *dataBuffer, unsigned int dataLength);
 __COMM_EXTERN__ unsigned char spiReceive(unsigned char commandBuf, unsigned char *dataBuffer, unsigned int dataLength);
+
+// I2C communication functions
 __COMM_EXTERN__ unsigned char i2cTransmitData(unsigned char i2cAddress, unsigned char *dataBuffer, unsigned int dataLength);
 __COMM_EXTERN__ unsigned char i2cReceiveData(unsigned char i2cAddress, unsigned char *dataBuffer, unsigned int dataLength);
+
+// GPIO functions
 __COMM_EXTERN__ void setGpioLevel(unsigned char pinNumber, unsigned char voltageLevel);
 __COMM_EXTERN__ unsigned char getGpioLevel(unsigned char pinNumber);
 
