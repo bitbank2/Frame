@@ -26,6 +26,7 @@ extern "C"
 
 #define TOOGLE_SEL1 23
 #define TOOGLE_SEL2 24
+#define IST_PowerSave 25
 
 // Create two TCA9555 objects with different I2C addresses
 // Default address is 0x20 (when A0, A1, A2 are all LOW)
@@ -209,6 +210,7 @@ void setup()
   error = Wire.endTransmission();
   Serial.print("Error: ");
   Serial.println(error);
+  pinMode(TOOGLE_SEL2, OUTPUT);
   pinMode(TOOGLE_SEL1, OUTPUT);
   pinMode(TOOGLE_SEL2, OUTPUT);
 
