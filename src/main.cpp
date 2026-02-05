@@ -215,22 +215,32 @@ void setup()
   digitalWrite(TOOGLE_SEL1, LOW);
   digitalWrite(TOOGLE_SEL2, LOW);
 
-  expanders_voltage_gpio_init();
-
-  
+  // expanders_voltage_gpio_init();
 
   Serial.println("Setting voltage enable pins HIGH...");
-
-  expander2.write1(EXP2_EN_DC12, HIGH);
+  expander1.pinMode1(EXP1_EN_V5A, OUTPUT);
   expander1.write1(EXP1_EN_V5A, HIGH);
+
+  expander2.pinMode1(EXP2_EN_V5D, OUTPUT);
   expander2.write1(EXP2_EN_V5D, HIGH);
-  expander2.write1(EXP2_EN_1_35V, HIGH);
+
+  expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V, OUTPUT);
   expander2.write1(EXP2_EN_NEGATIVE_3_5V, HIGH);
+
+  expander2.pinMode1(EXP2_EN_1_35V, OUTPUT);
+  expander2.write1(EXP2_EN_1_35V, HIGH);
+
+  expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
+  expander2.write1(EXP2_EN_DC12, HIGH);
+
+  expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
   expander2.write1(EXP2_EN_DC19, HIGH);
 
   delay(5000);
+  Serial.println("Enable ---");
   expander1.pinMode1(EXP1_PMIC_EN, OUTPUT);
-  expander1.write1(EXP1_PMIC_EN, LOW);
+  // expander1.write1(EXP1_PMIC_EN, LOW);
+  expander1.write1(EXP1_PMIC_EN, HIGH);
   enablePmic();
 
   delay(2000);
