@@ -114,8 +114,8 @@ void gpio_init() {
   pinMode(VNCP_SW, OUTPUT);
   pinMode(PMIC_PS, OUTPUT);
 
-  pinMode(45,OUTPUT);
-  pinMode(21, OUTPUT);
+  pinMode(45,OUTPUT); // PW1555 curent switch
+  pinMode(21, OUTPUT); // EN IST
 
 
   // Initialize input pins
