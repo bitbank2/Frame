@@ -269,7 +269,7 @@ void enablePmic(void)
 	if(setPmic()==DONE)
 	{
 		delayms(100);
-		powerSwitchEnable();
+		// powerSwitchEnable();// test off
 
 		// Wait for PMIC_PG with timeout (max 5 seconds)
 		int timeout = 5000; // 5 seconds timeout

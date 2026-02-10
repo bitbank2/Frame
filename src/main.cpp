@@ -160,7 +160,7 @@ void setup()
   Serial.begin(115200);
   byte exp2addr = 0x21;
   byte error;
-  delay(2000); // Longer delay for USB CDC to initialize on ESP32-C5
+  delay(5000); // Longer delay for USB CDC to initialize on ESP32-C5
 
   // Wait for Serial to be ready (important for USB CDC)
   while (!Serial && millis() < 5000)
@@ -224,29 +224,34 @@ void setup()
   // expanders_voltage_gpio_init();
 
   Serial.println("Setting voltage enable pins HIGH...");
+  delay(100);
   expander1.pinMode1(EXP1_EN_V5A, OUTPUT);
   expander1.write1(EXP1_EN_V5A, HIGH);
-
+  delay(100);
   expander2.pinMode1(EXP2_EN_V5D, OUTPUT);
   expander2.write1(EXP2_EN_V5D, HIGH);
-
-  expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V, OUTPUT);
-  expander2.write1(EXP2_EN_NEGATIVE_3_5V, HIGH);
-
+  delay(100);
   expander2.pinMode1(EXP2_EN_1_35V, OUTPUT);
   expander2.write1(EXP2_EN_1_35V, HIGH);
-
+  delay(100);
   expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
   expander2.write1(EXP2_EN_DC12, HIGH);
-
+  delay(100);
   expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
   expander2.write1(EXP2_EN_DC19, HIGH);
-
-  delay(5000);
-  Serial.println("Enable ---");
+  // expander2.write1(EXP2_EN_DC19, LOW);
+  delay(100);
+  expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V, OUTPUT);
+  expander2.write1(EXP2_EN_NEGATIVE_3_5V, HIGH);
+  // expander2.write1(EXP2_EN_NEGATIVE_3_5V, LOW);
+  Serial.println("Enable --- 12v");
+  // delay(10000);
+  delay(10000);
+  Serial.println("Enable --- EN");
   expander1.pinMode1(EXP1_PMIC_EN, OUTPUT);
   // expander1.write1(EXP1_PMIC_EN, LOW);
   expander1.write1(EXP1_PMIC_EN, HIGH);
+  delay(10000);
   enablePmic();
 
   delay(2000);
