@@ -24,9 +24,6 @@ extern "C"
 #define GPIO_INT1 28 // Interrupt from first expander
 #define GPIO_INT2 27 // Interrupt from second expander
 
-#define TOOGLE_SEL1 23
-#define TOOGLE_SEL2 24
-
 // Create two TCA9555 objects with different I2C addresses
 // Default address is 0x20 (when A0, A1, A2 are all LOW)
 // Second device should have different address (set via hardware pins A0, A1, A2)
@@ -49,16 +46,6 @@ void expanders_voltage_gpio_init()
 
 void gpio_cs_pins_init()
 {
-  // Initialize all SPI chip select pins as outputs (active low, so start HIGH)
-  expander1.pinMode1(EXP1_SPI1_CS3, OUTPUT);
-  expander1.pinMode1(EXP1_SPI1_CS2, OUTPUT);
-  expander1.pinMode1(EXP1_SPI1_CS1, OUTPUT);
-  expander1.pinMode1(EXP1_SPI1_CS0, OUTPUT);
-  expander1.pinMode1(EXP1_SPI2_CS3, OUTPUT);
-  expander1.pinMode1(EXP1_SPI2_CS2, OUTPUT);
-  expander1.pinMode1(EXP1_SPI2_CS1, OUTPUT);
-  expander1.pinMode1(EXP1_SPI2_CS0, OUTPUT);
-
   // Set all CS pins HIGH (inactive)
   expander1.write1(EXP1_SPI1_CS0, HIGH);
   expander1.write1(EXP1_SPI1_CS1, HIGH);
@@ -68,6 +55,15 @@ void gpio_cs_pins_init()
   expander1.write1(EXP1_SPI2_CS1, HIGH);
   expander1.write1(EXP1_SPI2_CS2, HIGH);
   expander1.write1(EXP1_SPI2_CS3, HIGH);
+  // Initialize all SPI chip select pins as outputs (active low, so start HIGH)
+  expander1.pinMode1(EXP1_SPI1_CS3, OUTPUT);
+  expander1.pinMode1(EXP1_SPI1_CS2, OUTPUT);
+  expander1.pinMode1(EXP1_SPI1_CS1, OUTPUT);
+  expander1.pinMode1(EXP1_SPI1_CS0, OUTPUT);
+  expander1.pinMode1(EXP1_SPI2_CS3, OUTPUT);
+  expander1.pinMode1(EXP1_SPI2_CS2, OUTPUT);
+  expander1.pinMode1(EXP1_SPI2_CS1, OUTPUT);
+  expander1.pinMode1(EXP1_SPI2_CS0, OUTPUT);
 }
 
 void epd_gpio_init()
@@ -160,7 +156,7 @@ void setup()
   Serial.begin(115200);
   byte exp2addr = 0x21;
   byte error;
-  delay(5000); // Longer delay for USB CDC to initialize on ESP32-C5
+  delay(2000); // Longer delay for USB CDC to initialize on ESP32-C5
 
   // Wait for Serial to be ready (important for USB CDC)
   while (!Serial && millis() < 5000)
@@ -209,10 +205,8 @@ void setup()
   error = Wire.endTransmission();
   Serial.print("Error: ");
   Serial.println(error);
-  delay(100);
   pinMode(PMIC_PG, INPUT);
   pinMode(EPD_BUSY, INPUT);
-
   pinMode(PMIC_PS, OUTPUT);
   pinMode(TOOGLE_SEL1, OUTPUT);
   pinMode(TOOGLE_SEL2, OUTPUT);
@@ -220,38 +214,35 @@ void setup()
   digitalWrite(PMIC_PS, LOW);
   digitalWrite(TOOGLE_SEL1, LOW);
   digitalWrite(TOOGLE_SEL2, LOW);
-
   // expanders_voltage_gpio_init();
+  expander1.write1(EXP1_PMIC_EN, LOW);
+  expander1.pinMode1(EXP1_PMIC_EN, OUTPUT);
 
   Serial.println("Setting voltage enable pins HIGH...");
-  delay(100);
-  expander1.pinMode1(EXP1_EN_V5A, OUTPUT);
   expander1.write1(EXP1_EN_V5A, HIGH);
-  delay(100);
-  expander2.pinMode1(EXP2_EN_V5D, OUTPUT);
   expander2.write1(EXP2_EN_V5D, HIGH);
-  delay(100);
-  expander2.pinMode1(EXP2_EN_1_35V, OUTPUT);
   expander2.write1(EXP2_EN_1_35V, HIGH);
-  delay(100);
-  expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
+
+  expander1.pinMode1(EXP1_EN_V5A, OUTPUT);
+  expander2.pinMode1(EXP2_EN_V5D, OUTPUT);
+  expander2.pinMode1(EXP2_EN_1_35V, OUTPUT);
+  Serial.println("5v");
+  delay(10000);
   expander2.write1(EXP2_EN_DC12, HIGH);
-  delay(100);
-  expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
+  expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
+  Serial.println("12v");
+  delay(10000);
   expander2.write1(EXP2_EN_DC19, HIGH);
-  // expander2.write1(EXP2_EN_DC19, LOW);
-  delay(100);
-  expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V, OUTPUT);
+  expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
   expander2.write1(EXP2_EN_NEGATIVE_3_5V, HIGH);
-  // expander2.write1(EXP2_EN_NEGATIVE_3_5V, LOW);
-  Serial.println("Enable --- 12v");
-  // delay(10000);
+  expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V, OUTPUT);
+  Serial.println("19v");
+
   delay(10000);
-  Serial.println("Enable --- EN");
-  expander1.pinMode1(EXP1_PMIC_EN, OUTPUT);
-  // expander1.write1(EXP1_PMIC_EN, LOW);
-  expander1.write1(EXP1_PMIC_EN, HIGH);
+  digitalWrite(TOOGLE_SEL1, HIGH); // Enable IST
+  Serial.println("IST enabled");
   delay(10000);
+
   enablePmic();
 
   delay(2000);

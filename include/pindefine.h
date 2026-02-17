@@ -36,6 +36,9 @@
 #define EPD_RST		5    // EPD reset output
 #define PMIC_PG		26   // PMIC power good input
 #define PMIC_PS		25   // PMIC power save mode control
+
+#define TOOGLE_SEL1 23 //PMIC ENABLE on FIXED BOARD
+#define TOOGLE_SEL2 24
 //===============================================
 
 

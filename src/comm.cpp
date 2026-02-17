@@ -265,6 +265,7 @@ unsigned char spiReceive(unsigned char commandBuf, unsigned char *dataBuffer, un
 void setGpioLevel(unsigned char pinNumber, unsigned char voltageLevel)
 {
     expander1.write1(pinNumber, voltageLevel);
+    expander1.pinMode1(pinNumber, OUTPUT);
 }
 
 /**

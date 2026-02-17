@@ -92,10 +92,28 @@ static void epdResetPin(unsigned int pinStatus)
  */
 void epdSetCsAll(unsigned int setLevel)
 {
-    for(int i = 0; i < 8; i++)
-    {
-        expander1.write1(spiCsPin[i], setLevel);
-    }
+    // for(int i = 0; i < 8; i++)
+    // {
+    //     expander1.write1(spiCsPin[i], setLevel);
+    // }
+expander1.write1(EXP1_SPI1_CS0, setLevel);
+expander1.write1(EXP1_SPI1_CS1, setLevel);
+expander1.write1(EXP1_SPI1_CS2, setLevel);
+expander1.write1(EXP1_SPI1_CS3, setLevel);
+expander1.write1(EXP1_SPI2_CS0, setLevel);
+expander1.write1(EXP1_SPI2_CS1, setLevel);
+expander1.write1(EXP1_SPI2_CS2, setLevel);
+expander1.write1(EXP1_SPI2_CS3, setLevel);
+
+  expander1.pinMode1(EXP1_SPI1_CS3, OUTPUT);
+  expander1.pinMode1(EXP1_SPI1_CS2, OUTPUT);
+  expander1.pinMode1(EXP1_SPI1_CS1, OUTPUT);
+  expander1.pinMode1(EXP1_SPI1_CS0, OUTPUT);
+  expander1.pinMode1(EXP1_SPI2_CS3, OUTPUT);
+  expander1.pinMode1(EXP1_SPI2_CS2, OUTPUT);
+  expander1.pinMode1(EXP1_SPI2_CS1, OUTPUT);
+  expander1.pinMode1(EXP1_SPI2_CS0, OUTPUT);
+
 }
 
 /**
@@ -108,6 +126,7 @@ void epdSetCs(unsigned char csNumber, unsigned int setLevel)
     if(csNumber < 8)
     {
         expander1.write1(spiCsPin[csNumber], setLevel);
+        expander1.pinMode1(spiCsPin[csNumber], OUTPUT);
     }
 }
 

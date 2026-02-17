@@ -269,8 +269,7 @@ void enablePmic(void)
 	if(setPmic()==DONE)
 	{
 		delayms(100);
-		// powerSwitchEnable();// test off
-
+		powerSwitchEnable();// for test can be off
 		// Wait for PMIC_PG with timeout (max 5 seconds)
 		int timeout = 5000; // 5 seconds timeout
 		int elapsed = 0;
@@ -311,9 +310,9 @@ void disablePmic(void)
 void powerSwitchEnable(void)
 {
 	setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH);
-	delayms(50);// Wait for VDDN to be ready.
+	delayms(100);// Wait for VDDN to be ready.
 	setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH);
-	delayms(50);// Wait for VDDP to be ready.
+	delayms(100);// Wait for VDDP to be ready.
 	setGpioLevel(EXP1_VNCP_EN, GPIO_HIGH);
 
 #if SHOW_LOG
