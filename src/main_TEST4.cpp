@@ -231,21 +231,33 @@ void setup()
   expander2.write1(EXP2_EN_DC12, HIGH);
   expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
   Serial.println("12v");
-  delay(10000);
-  // expander2.write1(EXP2_EN_DC19, HIGH);
-  // expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
+  delay(5000);
   // expander2.write1(EXP2_EN_NEGATIVE_3_5V, HIGH);
   // expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V, OUTPUT);
   // Serial.println("19v");
+  setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH); // +19v
+  printf("+19\n");
+  // delayms(10000); // Wait for VDDP to be ready.
+  delay(100);
+  setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH); // -19v
+  printf("-19\n");
+  // delayms(10000); // Wait for VDDN to be ready
+  delay(100);
+  expander2.write1(EXP2_EN_DC19, HIGH); // -3.5v
+  expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
+  printf("-3.5\n");
+  delay(10000);
+  // setGpioLevel(EXP1_VNCP_EN, GPIO_HIGH);
+  //   printf("-3.5\n");
+  // expander2.write1(EXP2_EN_DC19, HIGH);
+  // expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
   // delay(10000);
   // powerSwitchEnable();
   // delay(10000);
-  // digitalWrite(TOOGLE_SEL1, HIGH); // Enable IST
-  // Serial.println("IST enabled");
-  // delay(10000);
-
+  digitalWrite(TOOGLE_SEL1, HIGH); // Enable IST
+  Serial.println("IST enabled");
+  delay(100);
   enablePmic();
-  // powerSwitchEnable();
   delay(2000);
 
   scanI2C();
