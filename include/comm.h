@@ -40,3 +40,4 @@ __COMM_EXTERN__ unsigned char i2cReceiveData(unsigned char i2cAddress, unsigned 
 __COMM_EXTERN__ void setGpioLevel(unsigned char pinNumber, unsigned char voltageLevel);
 __COMM_EXTERN__ unsigned char getGpioLevel(unsigned char pinNumber);
 
+__COMM_EXTERN__ void set_ESP32_GpioLevel(void);

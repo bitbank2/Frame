@@ -34,15 +34,15 @@ TCA9555 expander2(0x21); // Second expander (adjust address based on hardware)
 volatile bool expander1_interrupt = false;
 volatile bool expander2_interrupt = false;
 
-void expanders_voltage_gpio_init()
-{
-  expander1.pinMode1(EXP1_EN_V5A, OUTPUT);
-  expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V, OUTPUT);
-  expander2.pinMode1(EXP2_EN_1_35V, OUTPUT);
-  expander2.pinMode1(EXP2_EN_V5D, OUTPUT);
-  expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
-  expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
-}
+// void expanders_voltage_gpio_init()
+// {
+//   expander1.pinMode1(EXP1_EN_V5A, OUTPUT);
+//   expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V, OUTPUT);
+//   expander2.pinMode1(EXP2_EN_1_35V, OUTPUT);
+//   expander2.pinMode1(EXP2_EN_V5D, OUTPUT);
+//   expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
+//   expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
+// }
 
 void gpio_cs_pins_init()
 {
@@ -227,26 +227,29 @@ void setup()
   expander2.pinMode1(EXP2_EN_V5D, OUTPUT);
   expander2.pinMode1(EXP2_EN_1_35V, OUTPUT);
   Serial.println("5v");
-  delay(5000);
-  expander2.write1(EXP2_EN_DC12, HIGH);
-  expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
-  Serial.println("12v");
-  delay(5000);
+  delay(10000);
+  // expander2.write1(EXP2_EN_DC12, HIGH);
+  // expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
+  // Serial.println("12v");
+  // delay(5000);
   // expander2.write1(EXP2_EN_NEGATIVE_3_5V, HIGH);
   // expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V, OUTPUT);
   // Serial.println("19v");
-  setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH); // +19v
-  printf("+19\n");
+
+  // setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH); // +19v
+  // printf("+19\n");
+  // // delayms(10000); // Wait for VDDP to be ready.
+  // delay(100);
+  // setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH); // -19v
+  // printf("-19\n");
+  // // delayms(10000); // Wait for VDDN to be ready
+  // delay(100);
+  // expander2.write1(EXP2_EN_DC19, HIGH); // -3.5v
+  // expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
+  // printf("-3.5\n");
   // delayms(10000); // Wait for VDDP to be ready.
-  delay(100);
-  setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH); // -19v
-  printf("-19\n");
-  // delayms(10000); // Wait for VDDN to be ready
-  delay(100);
-  expander2.write1(EXP2_EN_DC19, HIGH); // -3.5v
-  expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
-  printf("-3.5\n");
-  delay(10000);
+  // delay(100);
+
   // setGpioLevel(EXP1_VNCP_EN, GPIO_HIGH);
   //   printf("-3.5\n");
   // expander2.write1(EXP2_EN_DC19, HIGH);
@@ -254,11 +257,61 @@ void setup()
   // delay(10000);
   // powerSwitchEnable();
   // delay(10000);
-  digitalWrite(TOOGLE_SEL1, HIGH); // Enable IST
-  Serial.println("IST enabled");
-  delay(100);
-  enablePmic();
+  // digitalWrite(TOOGLE_SEL1, HIGH); // Enable IST
+  // Serial.println("IST enabled");
+  // delay(10);//was 100
+  // enablePmic();
+  if (setPmic() == DONE)
+  {
+    printf("PMIC registers configured successfully\r\n");
+    delayms(100);
+    // powerSwitchEnable(); // for test can be off
+    setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH); // -19v
+    printf("-19\n");
+    delay(50);
+    setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH); // +19v
+    printf("+19\n");
+    delay(50);
+    expander2.write1(EXP2_EN_DC19, HIGH); // -3.5v
+    expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
+    printf("-3.5\n");
+    delay(50);
+
+    set_ESP32_GpioLevel();
+    printf("Setting PMIC_EN to HIGH...\r\n");
+    // Wait for PMIC_PG with timeout (max 5 seconds)
+    int timeout = 5000; // 5 seconds timeout
+    int elapsed = 0;
+    printf("Waiting for PMIC_PG to go HIGH...\n");
+    while (!(getGpioLevel(PMIC_PG)))
+    {
+      delayms(10);
+      elapsed += 10;
+      if (elapsed >= timeout)
+      {
+        printf("ERROR: PMIC_PG timeout! PMIC did not reach power good state.\n");
+        printf("PMIC_PG pin state: %d (should be 1)\n", getGpioLevel(PMIC_PG));
+        return; // Exit instead of hanging forever
+      }
+      if (elapsed % 500 == 0)
+      {
+        printf("Still waiting for PMIC_PG... (%d ms)\n", elapsed);
+      }
+    }
+    printf("PMIC_PG is HIGH - Power good!\n");
+#if SHOW_LOG
+    printf("enablePmic() done. \r\n");
+#endif
+  }
+  else
+  {
+#if SHOW_LOG
+    printf("enablePmic() error. \r\n");
+#endif
+  }
   delay(2000);
+  // digitalWrite(TOOGLE_SEL1, HIGH); // Enable IST
+  // Serial.println("IST enabled");
 
   scanI2C();
 
@@ -325,11 +378,17 @@ void setup()
   // Initialize EPD driver ICs
   printf("\n========== Initializing EPD ==========\n");
   epdInit();
+  memset(epdImageDataBuffer, EPD_WHITE, EPD_IMAGE_DATA_BUFFER);
 
   // Check driver IC status
   if (epdCheckDriverICStatus() == DONE)
   {
-    printf("All driver ICs are ready!\n");
+    if (epdSetPower() == DONE)
+    {
+      printf("All driver ICs are ready!\n");
+      epdWriteImage(0, epdImageDataBuffer, EPD_IMAGE_DATA_BUFFER);
+      epdWriteImage(1, epdImageDataBuffer, EPD_IMAGE_DATA_BUFFER);
+    }
   }
   else
   {
