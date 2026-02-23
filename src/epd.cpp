@@ -73,8 +73,8 @@ const unsigned char SPIM_V[1] = {
     0x00
 };
 
-// Image data buffer
-unsigned char epdImageDataBuffer[EPD_IMAGE_DATA_BUFFER];
+// Image data buffer (stored in PSRAM)
+EXT_RAM_ATTR unsigned char epdImageDataBuffer[EPD_IMAGE_DATA_BUFFER];
 
 //================== GPIO Control Functions ====================================
 
