@@ -282,7 +282,7 @@ void setup()
   // setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH); // -19v
   // printf("-19\n");
   // delay(50);
-  // setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH); // +19v  
+  // setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH); // +19v
   // printf("+19\n");
   // delay(50);
   // expander2.write1(EXP2_EN_DC19, HIGH); // -3.5v
@@ -388,6 +388,16 @@ void setup()
   // Initialize EPD driver ICs
   printf("\n========== Initializing EPD ==========\n");
   // epdInit();
+
+  // Allocate EPD image buffer in PSRAM before any use
+  epdImageDataBuffer = (unsigned char *)ps_malloc(EPD_IMAGE_DATA_BUFFER);
+  if (epdImageDataBuffer == nullptr)
+  {
+    printf("[EPD] FATAL: ps_malloc failed for image buffer!\n");
+    while (1)
+      ;
+  }
+  printf("[EPD] Image buffer allocated in PSRAM (%u bytes)\n", EPD_IMAGE_DATA_BUFFER);
   memset(epdImageDataBuffer, EPD_BLACK, EPD_IMAGE_DATA_BUFFER);
 
   // Check driver IC status
