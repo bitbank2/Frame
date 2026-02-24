@@ -388,7 +388,8 @@ void setup()
 
   // Initialize EPD driver ICs
   printf("\n========== Initializing EPD ==========\n");
-  memset(epdImageDataBuffer, EPD_WHITE, EPD_IMAGE_DATA_BUFFER);
+  epdInit();
+  memset(epdImageDataBuffer, EPD_BLACK, EPD_IMAGE_DATA_BUFFER);
 
   // Check driver IC status
   if (epdCheckDriverICStatus() == DONE)
