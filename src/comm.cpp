@@ -188,7 +188,9 @@ unsigned char spiTransmitLargeData(unsigned char commandBuf, unsigned char *data
 
     while (remaining > 0) {
         unsigned long bytesToSend = (remaining > chunkSize) ? chunkSize : remaining;
-        SPI.transfer(&dataBuffer[offset], bytesToSend);
+        // Use writeBytes() instead of transfer() - transfer() is bidirectional and
+        // overwrites the source buffer with MISO data, corrupting image data.
+        SPI.writeBytes(&dataBuffer[offset], bytesToSend);
         offset += bytesToSend;
         remaining -= bytesToSend;
     }

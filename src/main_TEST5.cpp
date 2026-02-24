@@ -6,6 +6,7 @@
 #include "globals.h"
 #include "pmic.h"
 #include "status.h"
+#include "BfkLx0.h"
 
 extern "C"
 {
@@ -414,14 +415,14 @@ void setup()
 
     if (epdSetPower() == DONE)
     {
-        epdWriteImage(0, colorBuffers[0], EPD_IMAGE_DATA_BUFFER);
-        epdWriteImage(1, colorBuffers[1], EPD_IMAGE_DATA_BUFFER);
-        epdWriteImage(2, colorBuffers[2], EPD_IMAGE_DATA_BUFFER);
-        epdWriteImage(3, colorBuffers[3], EPD_IMAGE_DATA_BUFFER);
-        epdWriteImage(4, colorBuffers[4], EPD_IMAGE_DATA_BUFFER);
-        epdWriteImage(5, colorBuffers[5], EPD_IMAGE_DATA_BUFFER);
-        epdWriteImage(6, colorBuffers[4], EPD_IMAGE_DATA_BUFFER);
-        epdWriteImage(7, colorBuffers[2], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(0, BfkLx0_sections[0], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(1, BfkLx0_sections[1], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(2, BfkLx0_sections[2], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(3, BfkLx0_sections[3], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(4, BfkLx0_sections[4], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(5, BfkLx0_sections[5], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(6, BfkLx0_sections[6], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(7, BfkLx0_sections[7], EPD_IMAGE_DATA_BUFFER);
         epdDisplay();
         printf("Display complete.\n");
         delay(2000);

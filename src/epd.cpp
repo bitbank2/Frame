@@ -121,7 +121,7 @@ void epdSetCs(unsigned char csNumber, unsigned int setLevel)
  */
 void epdCheckBusyHigh(void)
 {
-    int timeout = 10000; // 10 second timeout
+    int timeout = 60000; // 60 second timeout (31.5" ACeP needs up to 30s refresh)
     int elapsed = 0;
     while (!(digitalRead(EPD_BUSY)))
     {
@@ -140,7 +140,7 @@ void epdCheckBusyHigh(void)
  */
 void epdCheckBusyLow(void)
 {
-    int timeout = 10000; // 10 second timeout
+    int timeout = 60000; // 60 second timeout
     int elapsed = 0;
     while (digitalRead(EPD_BUSY))
     {
