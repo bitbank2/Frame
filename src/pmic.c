@@ -315,14 +315,14 @@ void disablePmic(void)
 void powerSwitchEnable(void)
 {
     
-	// setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH);
-    // printf("-19\n");
-	// delayms(1000);// Wait for VDDN to be ready.
-	// setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH);
-    // printf("+19\n");
-	// delayms(1000);// Wait for VDDP to be ready.
-	// setGpioLevel(EXP1_VNCP_EN, GPIO_HIGH);
-    // printf("-3.5\n");
+	 setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH);
+    printf("-19\n");
+	 delayms(1000);// Wait for VDDN to be ready.
+	 setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH);
+     printf("+19\n");
+	 delayms(1000);// Wait for VDDP to be ready.
+	 setGpioLevel(EXP1_VNCP_EN, GPIO_HIGH);
+     printf("-3.5\n");
 #if SHOW_LOG
     printf("Power Switch Enable \r\n");
 #endif

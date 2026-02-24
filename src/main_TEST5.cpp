@@ -408,7 +408,12 @@ void setup()
   {
     printf("WARNING: Some driver ICs did not respond\n");
   }
+
+
+  delayms(50000);
+  powerSwitchDisable();
   printf("======================================\n\n");
+
 
   // begin() sets all pins as inputs by default
   /*
