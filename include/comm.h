@@ -41,3 +41,4 @@ __COMM_EXTERN__ void setGpioLevel(unsigned char pinNumber, unsigned char voltage
 __COMM_EXTERN__ unsigned char getGpioLevel(unsigned char pinNumber);
 
 __COMM_EXTERN__ void set_ESP32_GpioLevel(uint8_t pinState);
+__COMM_EXTERN__ void setGpioLevel_EXPANDER_2(unsigned char pinNumber, unsigned char voltageLevel);

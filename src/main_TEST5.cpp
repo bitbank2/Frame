@@ -44,7 +44,7 @@ volatile bool expander2_interrupt = false;
 //   expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
 // }
 
-void gpio_cs_pins_init()
+void gpio_cs_pins_init() // set all pins HIGH
 {
   // Set all CS pins HIGH (inactive)
   expander1.write1(EXP1_SPI1_CS0, HIGH);
@@ -169,11 +169,14 @@ void setup()
   Serial.println();
 
   // PSRAM check
-  if (psramFound()) {
+  if (psramFound())
+  {
     Serial.println("[PSRAM] Connected successfully");
     Serial.printf("[PSRAM] Total size : %u bytes (%.1f KB)\n", ESP.getPsramSize(), ESP.getPsramSize() / 1024.0f);
     Serial.printf("[PSRAM] Free        : %u bytes (%.1f KB)\n", ESP.getFreePsram(), ESP.getFreePsram() / 1024.0f);
-  } else {
+  }
+  else
+  {
     Serial.println("[PSRAM] ERROR: Not found or not initialized!");
   }
   Serial.println();
@@ -271,53 +274,49 @@ void setup()
   // Serial.println("IST enabled");
   // delay(10);//was 100
   // enablePmic();
-  //if (setPmic() == DONE)
+  // if (setPmic() == DONE)
   //{
-    printf("PMIC registers configured successfully\r\n");
-    delayms(100);
-    // powerSwitchEnable(); // for test can be off
-    setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH); // -19v
-    printf("-19\n");
-    delay(50);
-    setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH); // +19v
-    printf("+19\n");
-    delay(50);
-    expander2.write1(EXP2_EN_DC19, HIGH); // -3.5v
-    expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
-    printf("-3.5\n");
-    delay(50);
+  // printf("PMIC registers configured successfully\r\n");
+  // delayms(100);
+  // powerSwitchEnable(); // for test can be off
+  // setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH); // -19v
+  // printf("-19\n");
+  // delay(50);
+  // setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH); // +19v  
+  // printf("+19\n");
+  // delay(50);
+  // expander2.write1(EXP2_EN_DC19, HIGH); // -3.5v
+  // expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
+  // printf("-3.5\n");
+  // delay(50);
 
+  // set_ESP32_GpioLevel(LOW);
+  // printf("Setting PMIC_EN to LOW...\r\n");
 
-
-
-    set_ESP32_GpioLevel(LOW);
-    printf("Setting PMIC_EN to LOW...\r\n");
-
-    
-    // Wait for PMIC_PG with timeout (max 5 seconds)
-    int timeout = 5000; // 5 seconds timeout
-    int elapsed = 0;
-    printf("Waiting for PMIC_PG to go HIGH...\n");
-    /*while (!(getGpioLevel(PMIC_PG)))
+  // Wait for PMIC_PG with timeout (max 5 seconds)
+  // int timeout = 5000; // 5 seconds timeout
+  // int elapsed = 0;
+  // printf("Waiting for PMIC_PG to go HIGH...\n");
+  /*while (!(getGpioLevel(PMIC_PG)))
+  {
+    delayms(10);
+    elapsed += 10;
+    if (elapsed >= timeout)
     {
-      delayms(10);
-      elapsed += 10;
-      if (elapsed >= timeout)
-      {
-        printf("ERROR: PMIC_PG timeout! PMIC did not reach power good state.\n");
-        printf("PMIC_PG pin state: %d (should be 1)\n", getGpioLevel(PMIC_PG));
-        return; // Exit instead of hanging forever
-      }
-      if (elapsed % 500 == 0)
-      {
-        printf("Still waiting for PMIC_PG... (%d ms)\n", elapsed);
-      }
+      printf("ERROR: PMIC_PG timeout! PMIC did not reach power good state.\n");
+      printf("PMIC_PG pin state: %d (should be 1)\n", getGpioLevel(PMIC_PG));
+      return; // Exit instead of hanging forever
     }
-    printf("PMIC_PG is HIGH - Power good!\n");
+    if (elapsed % 500 == 0)
+    {
+      printf("Still waiting for PMIC_PG... (%d ms)\n", elapsed);
+    }
+  }
+  printf("PMIC_PG is HIGH - Power good!\n");
 #if SHOW_LOG
-    printf("enablePmic() done. \r\n");
+  printf("enablePmic() done. \r\n");
 #endif
-  //}*/
+//}*/
   delay(2000);
   // digitalWrite(TOOGLE_SEL1, HIGH); // Enable IST
   // Serial.println("IST enabled");
@@ -388,7 +387,7 @@ void setup()
 
   // Initialize EPD driver ICs
   printf("\n========== Initializing EPD ==========\n");
-  epdInit();
+  // epdInit();
   memset(epdImageDataBuffer, EPD_BLACK, EPD_IMAGE_DATA_BUFFER);
 
   // Check driver IC status
@@ -403,6 +402,7 @@ void setup()
       epdWriteImage(0, epdImageDataBuffer, EPD_IMAGE_DATA_BUFFER);
       epdWriteImage(1, epdImageDataBuffer, EPD_IMAGE_DATA_BUFFER);
       epdDisplay();
+      printf("Display image complete.\n");
     }
   }
   else
@@ -410,11 +410,21 @@ void setup()
     printf("WARNING: Some driver ICs did not respond\n");
   }
 
-
   delayms(50000);
-  powerSwitchDisable();
-  printf("======================================\n\n");
+  // powerSwitchDisable();
+  delay(5000);
+  expander2.write1(EXP2_EN_DC19, LOW); // -3.5v
+  expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
+  printf("-3.5\n");
+  delay(5000);
+  setGpioLevel(EXP1_VDDP_EN, GPIO_LOW); // +19v
+  printf("+19\n");
+  delay(50);
+  setGpioLevel(EXP1_VDDN_EN, GPIO_LOW); // -19v
+  printf("-19\n");
+  delay(50);
 
+  printf("======================================\n\n");
 
   // begin() sets all pins as inputs by default
   /*

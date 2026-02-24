@@ -278,14 +278,17 @@ unsigned char getGpioLevel(unsigned char pinNumber)
     return digitalRead(pinNumber);
 }
 
-// /**
-//  * @brief Set ESP32 GPIO pin level
-//  * @param pinNumber: GPIO pin number
-//  * @param voltageLevel: HIGH or LOW
-//  */
+// temporary Enable IST 9201 pin
 void set_ESP32_GpioLevel(uint8_t pinState)
 {
     // expander1.write1(pinNumber, voltageLevel);
     // expander1.pinMode1(pinNumber, OUTPUT);
-    digitalWrite(TOOGLE_SEL1, HIGH); // Enable IST 9201
+    digitalWrite(TOOGLE_SEL1, pinState); // Enable IST 9201
+}
+
+// temporary
+void setGpioLevel_EXPANDER_2(unsigned char pinNumber, unsigned char voltageLevel)
+{
+    expander2.write1(pinNumber, voltageLevel);
+    expander2.pinMode1(pinNumber, OUTPUT);
 }
