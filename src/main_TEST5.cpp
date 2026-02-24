@@ -389,30 +389,42 @@ void setup()
   printf("\n========== Initializing EPD ==========\n");
   // epdInit();
 
-  // Allocate EPD image buffer in PSRAM before any use
-  epdImageDataBuffer = (unsigned char *)ps_malloc(EPD_IMAGE_DATA_BUFFER);
-  if (epdImageDataBuffer == nullptr)
+  // Allocate one PSRAM buffer per color and pre-fill
+  const uint8_t  colorValues[] = { EPD_BLACK, EPD_WHITE, EPD_YELLOW, EPD_RED, EPD_BLUE, EPD_GREEN };
+  const char    *colorNames[]  = { "BLACK",   "WHITE",   "YELLOW",   "RED",   "BLUE",   "GREEN"  };
+  const int      numColors     = 6;
+  unsigned char *colorBuffers[numColors];
+
+  for (int i = 0; i < numColors; i++)
   {
-    printf("[EPD] FATAL: ps_malloc failed for image buffer!\n");
-    while (1)
-      ;
+    colorBuffers[i] = (unsigned char *)ps_malloc(EPD_IMAGE_DATA_BUFFER);
+    if (colorBuffers[i] == nullptr)
+    {
+      printf("[EPD] FATAL: ps_malloc failed for %s buffer!\n", colorNames[i]);
+      while (1);
+    }
+    memset(colorBuffers[i], colorValues[i], EPD_IMAGE_DATA_BUFFER);
+    printf("[EPD] %s buffer ready in PSRAM (%u bytes)\n", colorNames[i], EPD_IMAGE_DATA_BUFFER);
   }
-  printf("[EPD] Image buffer allocated in PSRAM (%u bytes)\n", EPD_IMAGE_DATA_BUFFER);
-  memset(epdImageDataBuffer, EPD_BLACK, EPD_IMAGE_DATA_BUFFER);
 
   // Check driver IC status
   if (epdCheckDriverICStatus() == DONE)
   {
-
     epdInit();
 
     if (epdSetPower() == DONE)
     {
-      printf("All driver ICs are ready!\n");
-      epdWriteImage(0, epdImageDataBuffer, EPD_IMAGE_DATA_BUFFER);
-      epdWriteImage(1, epdImageDataBuffer, EPD_IMAGE_DATA_BUFFER);
-      epdDisplay();
-      printf("Display image complete.\n");
+        epdWriteImage(0, colorBuffers[0], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(1, colorBuffers[1], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(2, colorBuffers[2], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(3, colorBuffers[3], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(4, colorBuffers[4], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(5, colorBuffers[5], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(6, colorBuffers[4], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(7, colorBuffers[2], EPD_IMAGE_DATA_BUFFER);
+        epdDisplay();
+        printf("Display complete.\n");
+        delay(2000);
     }
   }
   else
