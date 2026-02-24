@@ -168,6 +168,16 @@ void setup()
   Serial.println("Hello world!");
   Serial.println();
 
+  // PSRAM check
+  if (psramFound()) {
+    Serial.println("[PSRAM] Connected successfully");
+    Serial.printf("[PSRAM] Total size : %u bytes (%.1f KB)\n", ESP.getPsramSize(), ESP.getPsramSize() / 1024.0f);
+    Serial.printf("[PSRAM] Free        : %u bytes (%.1f KB)\n", ESP.getFreePsram(), ESP.getFreePsram() / 1024.0f);
+  } else {
+    Serial.println("[PSRAM] ERROR: Not found or not initialized!");
+  }
+  Serial.println();
+
   Serial.println("TCA9555 I/O Expander Test");
   Serial.println("Initializing I2C...");
 
@@ -261,8 +271,8 @@ void setup()
   // Serial.println("IST enabled");
   // delay(10);//was 100
   // enablePmic();
-  if (setPmic() == DONE)
-  {
+  //if (setPmic() == DONE)
+  //{
     printf("PMIC registers configured successfully\r\n");
     delayms(100);
     // powerSwitchEnable(); // for test can be off
@@ -277,13 +287,18 @@ void setup()
     printf("-3.5\n");
     delay(50);
 
-    set_ESP32_GpioLevel();
-    printf("Setting PMIC_EN to HIGH...\r\n");
+
+
+
+    set_ESP32_GpioLevel(LOW);
+    printf("Setting PMIC_EN to LOW...\r\n");
+
+    
     // Wait for PMIC_PG with timeout (max 5 seconds)
     int timeout = 5000; // 5 seconds timeout
     int elapsed = 0;
     printf("Waiting for PMIC_PG to go HIGH...\n");
-    while (!(getGpioLevel(PMIC_PG)))
+    /*while (!(getGpioLevel(PMIC_PG)))
     {
       delayms(10);
       elapsed += 10;
@@ -302,13 +317,7 @@ void setup()
 #if SHOW_LOG
     printf("enablePmic() done. \r\n");
 #endif
-  }
-  else
-  {
-#if SHOW_LOG
-    printf("enablePmic() error. \r\n");
-#endif
-  }
+  //}*/
   delay(2000);
   // digitalWrite(TOOGLE_SEL1, HIGH); // Enable IST
   // Serial.println("IST enabled");
@@ -375,19 +384,24 @@ void setup()
   // Initialize SPI
   spiInit();
 
+  epdHardwareReset();
+
   // Initialize EPD driver ICs
   printf("\n========== Initializing EPD ==========\n");
-  epdInit();
   memset(epdImageDataBuffer, EPD_WHITE, EPD_IMAGE_DATA_BUFFER);
 
   // Check driver IC status
   if (epdCheckDriverICStatus() == DONE)
   {
+
+    epdInit();
+
     if (epdSetPower() == DONE)
     {
       printf("All driver ICs are ready!\n");
       epdWriteImage(0, epdImageDataBuffer, EPD_IMAGE_DATA_BUFFER);
       epdWriteImage(1, epdImageDataBuffer, EPD_IMAGE_DATA_BUFFER);
+      epdDisplay();
     }
   }
   else

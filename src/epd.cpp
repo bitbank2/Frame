@@ -73,8 +73,8 @@ const unsigned char SPIM_V[1] = {
     0x00
 };
 
-// Image data buffer (stored in PSRAM)
-EXT_RAM_ATTR unsigned char epdImageDataBuffer[EPD_IMAGE_DATA_BUFFER];
+// Image data buffer - allocated in PSRAM at runtime
+unsigned char *epdImageDataBuffer = nullptr;
 
 //================== GPIO Control Functions ====================================
 
@@ -219,6 +219,16 @@ void epdWriteData(const unsigned char *epdData, unsigned int epdDataLength)
 void epdInit(void)
 {
     printf("Initializing EPD...\n");
+
+    // Allocate image buffer in PSRAM
+    if (epdImageDataBuffer == nullptr) {
+        epdImageDataBuffer = (unsigned char *)ps_malloc(EPD_IMAGE_DATA_BUFFER);
+        if (epdImageDataBuffer == nullptr) {
+            printf("[EPD] ERROR: Failed to allocate image buffer in PSRAM!\n");
+        } else {
+            printf("[EPD] Image buffer allocated in PSRAM (%u bytes)\n", EPD_IMAGE_DATA_BUFFER);
+        }
+    }
 
     // Hardware reset
     epdHardwareReset();

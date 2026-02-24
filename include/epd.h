@@ -41,7 +41,7 @@
 #define NOT_FIRST_DATA_PACKET   0
 
 // Image buffer size for one driver IC section (800×720 @ 4bpp = 288,000 bytes)
-#define EPD_IMAGE_DATA_BUFFER   218000 // 288000
+#define EPD_IMAGE_DATA_BUFFER   288000 // 288000
 
 // Number of driver ICs (chip selects)
 #define EPD_NUM_DRIVERS         8
@@ -51,7 +51,7 @@ extern "C" {
 #endif
 
 // Image data buffer (shared across sections) - defined in epd.cpp
-extern unsigned char epdImageDataBuffer[EPD_IMAGE_DATA_BUFFER];
+extern unsigned char *epdImageDataBuffer;
 
 // Hardware control functions
 void epdHardwareReset(void);

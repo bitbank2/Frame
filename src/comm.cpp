@@ -283,7 +283,7 @@ unsigned char getGpioLevel(unsigned char pinNumber)
 //  * @param pinNumber: GPIO pin number
 //  * @param voltageLevel: HIGH or LOW
 //  */
-void set_ESP32_GpioLevel(void)
+void set_ESP32_GpioLevel(uint8_t pinState)
 {
     // expander1.write1(pinNumber, voltageLevel);
     // expander1.pinMode1(pinNumber, OUTPUT);

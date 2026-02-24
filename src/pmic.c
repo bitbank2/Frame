@@ -273,7 +273,7 @@ void enablePmic(void)
         
 		powerSwitchEnable();// for test can be off
 
-        set_ESP32_GpioLevel();
+        set_ESP32_GpioLevel(0x01);
         printf("Setting PMIC_EN to HIGH...\r\n");
 		// Wait for PMIC_PG with timeout (max 5 seconds)
 		int timeout = 5000; // 5 seconds timeout
@@ -306,7 +306,7 @@ void enablePmic(void)
 
 void disablePmic(void)
 {
-    setGpioLevel(EXP1_PMIC_EN, GPIO_LOW);
+    set_ESP32_GpioLevel(0x00);
     while(getGpioLevel(PMIC_PG));//Waiting for the PMIC_PG is the low level.
 
 }
