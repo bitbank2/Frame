@@ -272,7 +272,7 @@ void enablePmic(void)
         delayms(100);
 
         powerSwitchEnable(); // we use other pins on OUR green-black devkit
-
+        // delayms(1000);       // test
         set_ESP32_GpioLevel(0x01);
         printf("Setting PMIC_EN to HIGH...\r\n");
         // Wait for PMIC_PG with timeout (max 5 seconds)
@@ -316,15 +316,24 @@ void disablePmic(void)
 
 void powerSwitchEnable(void) // temporary modified in our test PCB setup
 {
+    setGpioLevel_EXPANDER_2(EXP2_EN_DC19, GPIO_HIGH);
+    printf("EN DC19\n");
+    delayms(100);
     setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH); // -19v
     printf("-19\n");
     delayms(50);
     setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH); // +19v
     printf("+19\n");
     delayms(50);
-    setGpioLevel_EXPANDER_2(EXP2_EN_DC19, GPIO_HIGH); // -3.5v
+    // setGpioLevel_EXPANDER_2(EXP2_EN_DC19, GPIO_HIGH); // -3.5v from black fix temporary
+    setGpioLevel_EXPANDER_2(EXP2_EN_NEGATIVE_3_5V, GPIO_HIGH); // -3.5v our DC-DC EN
     printf("-3.5\n");
     delayms(50);
+    // setGpioLevel(EXP1_VNCP_EN, GPIO_HIGH);
+    // printf("-3.5\n");
+    // delayms(50);
+    // expander2.write1(EXP2_EN_NEGATIVE_3_5V, HIGH);
+    // expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V, OUTPUT);
 
     // setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH);
     // printf("-19\n");
@@ -344,10 +353,15 @@ void powerSwitchDisable(void)
     //====== Please use delayms() to wait for PMIC's voltages to be 0V ======
     delayms(5000); // Please confirm the discharge time of PMIC's power supply.
                    //========================================================
-    setGpioLevel(EXP1_VNCP_EN, GPIO_LOW);
+    // setGpioLevel(EXP1_VNCP_EN, GPIO_LOW);
+    setGpioLevel_EXPANDER_2(EXP2_EN_NEGATIVE_3_5V, GPIO_LOW);
+    printf("-3.5\n");
     //====== Please use delayms() to wait for VNCP to be 0V ======
     delayms(5000); // Please confirm the discharge time of VNCP power supply.
                    //========================================================
+    setGpioLevel_EXPANDER_2(EXP2_EN_DC19, GPIO_LOW);
+    printf("DC-DC 19\n");
+    delayms(5000);
     setGpioLevel(EXP1_VDDP_EN, GPIO_LOW);
     setGpioLevel(EXP1_VDDN_EN, GPIO_LOW);
 
