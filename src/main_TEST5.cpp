@@ -7,6 +7,7 @@
 #include "pmic.h"
 #include "status.h"
 #include "BfkLx0.h"
+#include "esp_sleep.h"
 
 extern "C"
 {
@@ -78,6 +79,42 @@ void epd_gpio_init()
 
   Serial.println("EPD GPIO initialized: RST=OUTPUT, BUSY=INPUT");
 }
+void printWakeupReason()
+{
+  esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+  switch (cause)
+  {
+    case ESP_SLEEP_WAKEUP_GPIO:
+      Serial.println("[SLEEP] Wakeup cause: GPIO (IO27 / INT2)");
+      break;
+    case ESP_SLEEP_WAKEUP_UNDEFINED:
+      Serial.println("[SLEEP] Wakeup cause: Power-on / reset (not deep sleep)");
+      break;
+    default:
+      Serial.printf("[SLEEP] Wakeup cause: %d\n", (int)cause);
+      break;
+  }
+}
+
+void enterDeepSleep()
+{
+  Serial.println("[SLEEP] Configuring IO27 as deep sleep wakeup source (active LOW)...");
+
+  // IO27 is connected to INT2 of TCA9555 expander 2 (active LOW)
+  pinMode(GPIO_INT2, INPUT_PULLUP);
+
+  esp_err_t err = esp_deep_sleep_enable_gpio_wakeup(1ULL << GPIO_INT2, ESP_GPIO_WAKEUP_GPIO_LOW);
+  if (err != ESP_OK)
+  {
+    Serial.printf("[SLEEP] ERROR: Failed to configure GPIO wakeup: %d\n", err);
+    return;
+  }
+
+  Serial.println("[SLEEP] Entering deep sleep. Will wake on IO27 LOW.");
+  Serial.flush();
+  esp_deep_sleep_start();
+}
+
 // Interrupt service routines
 void IRAM_ATTR expander1_ISR()
 {
@@ -166,6 +203,7 @@ void setup()
   }
 
   Serial.println("\n\n=== ESP32-C5 Starting ===");
+  printWakeupReason();
   Serial.println("Hello world!");
   Serial.println();
 
@@ -448,6 +486,8 @@ void setup()
   delay(50);
 
   printf("======================================\n\n");
+
+  enterDeepSleep();
 
   // begin() sets all pins as inputs by default
   /*
