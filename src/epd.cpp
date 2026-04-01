@@ -70,7 +70,9 @@ unsigned char *epdImageDataBuffer = nullptr;
  */
 static void epdResetPin(unsigned int pinStatus)
 {
-    digitalWrite(EPD_RST, pinStatus);
+    // digitalWrite(EPD_RST, pinStatus);
+    expander2.write1(14, pinStatus);
+    expander2.pinMode1(14, OUTPUT);
 }
 
 /**
@@ -84,22 +86,21 @@ void epdSetCsAll(unsigned int setLevel)
     //     expander1.write1(spiCsPin[i], setLevel);
     // }
     expander1.write1(EXP1_SPI1_CS0, setLevel);
-    expander1.write1(EXP1_SPI1_CS1, setLevel);
-    expander1.write1(EXP1_SPI1_CS2, setLevel);
-    expander1.write1(EXP1_SPI1_CS3, setLevel);
-    expander1.write1(EXP1_SPI2_CS0, setLevel);
-    expander1.write1(EXP1_SPI2_CS1, setLevel);
-    expander1.write1(EXP1_SPI2_CS2, setLevel);
-    expander1.write1(EXP1_SPI2_CS3, setLevel);
-
-    expander1.pinMode1(EXP1_SPI1_CS3, OUTPUT);
-    expander1.pinMode1(EXP1_SPI1_CS2, OUTPUT);
-    expander1.pinMode1(EXP1_SPI1_CS1, OUTPUT);
     expander1.pinMode1(EXP1_SPI1_CS0, OUTPUT);
-    expander1.pinMode1(EXP1_SPI2_CS3, OUTPUT);
-    expander1.pinMode1(EXP1_SPI2_CS2, OUTPUT);
-    expander1.pinMode1(EXP1_SPI2_CS1, OUTPUT);
+    expander1.write1(EXP1_SPI1_CS1, setLevel);
+    expander1.pinMode1(EXP1_SPI1_CS1, OUTPUT);
+    expander1.write1(EXP1_SPI1_CS2, setLevel);
+    expander1.pinMode1(EXP1_SPI1_CS2, OUTPUT);
+    expander1.write1(EXP1_SPI1_CS3, setLevel);
+    expander1.pinMode1(EXP1_SPI1_CS3, OUTPUT);
+    expander1.write1(EXP1_SPI2_CS0, setLevel);
     expander1.pinMode1(EXP1_SPI2_CS0, OUTPUT);
+    expander1.write1(EXP1_SPI2_CS1, setLevel);
+    expander1.pinMode1(EXP1_SPI2_CS1, OUTPUT);
+    expander1.write1(EXP1_SPI2_CS2, setLevel);
+    expander1.pinMode1(EXP1_SPI2_CS2, OUTPUT);
+    expander1.write1(EXP1_SPI2_CS3, setLevel);
+    expander1.pinMode1(EXP1_SPI2_CS3, OUTPUT);
 }
 
 /**
@@ -289,6 +290,7 @@ unsigned char epdCheckDriverICStatus(void)
     {
         memset(dataBuf, 0, sizeof(dataBuf));
         epdSetCs(csx, GPIO_LOW);
+        delayms(10);
         epdRead(0xF2, dataBuf, sizeof(dataBuf));
         epdSetCs(csx, GPIO_HIGH);
 

@@ -71,11 +71,14 @@ void gpio_cs_pins_init() // set all pins HIGH
 void epd_gpio_init()
 {
   // Initialize EPD control pins on ESP32-C5
-  pinMode(EPD_RST, OUTPUT);
+  // pinMode(EPD_RST, OUTPUT);
+  expander2.write1(14, HIGH);
+  expander2.pinMode1(14, OUTPUT);
+
   pinMode(EPD_BUSY, INPUT);
 
   // Set reset pin HIGH (not in reset)
-  digitalWrite(EPD_RST, HIGH);
+  // digitalWrite(EPD_RST, HIGH);
 
   Serial.println("EPD GPIO initialized: RST=OUTPUT, BUSY=INPUT");
 }
@@ -100,11 +103,14 @@ void printWakeupReason()
 void enterDeepSleep()
 {
   Serial.println("[SLEEP] Configuring IO as deep sleep wakeup source (active LOW)...");
-  setGpioLevel_EXPANDER_2(8, LOW);
-  delay(50);
   expander2.write1(EXP2_EN_DC12, LOW);
   delay(50);
   expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
+  delay(50);
+  setGpioLevel(EXP1_VDDP_EN, GPIO_LOW);
+  setGpioLevel(EXP1_VDDN_EN, GPIO_LOW);
+  delay(50);
+  setGpioLevel_EXPANDER_2(8, LOW);
   delay(50);
   setGpioLevel(EXP1_VNCP_EN, LOW);
   delay(50);
@@ -158,7 +164,11 @@ void enterDeepSleep()
   pinMode(26, INPUT);
   pinMode(27, INPUT);
   pinMode(28, INPUT);
-  esp_err_t err = esp_deep_sleep_enable_gpio_wakeup(1ULL << 5, ESP_GPIO_WAKEUP_GPIO_LOW);
+  delay(100);
+  esp_err_t err = esp_deep_sleep_enable_gpio_wakeup(1ULL << 0, ESP_GPIO_WAKEUP_GPIO_LOW);  // pin5 //26 or 28 // 4
+  esp_err_t err1 = esp_deep_sleep_enable_gpio_wakeup(1ULL << 1, ESP_GPIO_WAKEUP_GPIO_LOW); // pin5 //26 or 28 // 4
+  esp_err_t err2 = esp_deep_sleep_enable_gpio_wakeup(1ULL << 4, ESP_GPIO_WAKEUP_GPIO_LOW); // pin5 //26 or 28 // 4
+  esp_err_t err3 = esp_deep_sleep_enable_gpio_wakeup(1ULL << 5, ESP_GPIO_WAKEUP_GPIO_LOW); // pin5 //26 or 28 // 4
   if (err != ESP_OK)
   {
     Serial.printf("[SLEEP] ERROR: Failed to configure GPIO wakeup: %d\n", err);
@@ -531,7 +541,7 @@ void setup()
     memset(colorBuffers[i], colorValues[i], EPD_IMAGE_DATA_BUFFER);
     printf("[EPD] %s buffer ready in PSRAM (%u bytes)\n", colorNames[i], EPD_IMAGE_DATA_BUFFER);
   }
-
+  delayms(10);
   // Check driver IC status
   if (epdCheckDriverICStatus() == DONE)
   {
@@ -557,7 +567,7 @@ void setup()
     printf("WARNING: Some driver ICs did not respond\n");
   }
 
-  delayms(50000);
+  // delayms(50000);
   powerSwitchDisable();
   // delay(5000);
   // setGpioLevel_EXPANDER_2(EXP2_EN_NEGATIVE_3_5V, GPIO_LOW); // -3.5v our DC-DC EN

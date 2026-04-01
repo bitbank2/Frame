@@ -32,7 +32,7 @@
 
 //==============   ESP32-C5 GPIO Setting   ==============//
 // Direct GPIO pins on ESP32-C5 MCU
-#define EPD_BUSY	4    // EPD busy signal input
+#define EPD_BUSY	27//was4    // EPD busy signal input
 #define EPD_RST		5    // EPD reset output
 #define PMIC_PG		26   // PMIC power good input
 #define PMIC_PS		25   // PMIC power save mode control

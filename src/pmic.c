@@ -361,9 +361,9 @@ void powerSwitchDisable(void)
                    //========================================================
     setGpioLevel_EXPANDER_2(EXP2_EN_DC19, GPIO_LOW);
     printf("DC-DC 19\n");
-    delayms(5000);
-    setGpioLevel(EXP1_VDDP_EN, GPIO_LOW);
-    setGpioLevel(EXP1_VDDN_EN, GPIO_LOW);
+    // delayms(5000);
+    // setGpioLevel(EXP1_VDDP_EN, GPIO_LOW);
+    // setGpioLevel(EXP1_VDDN_EN, GPIO_LOW);
 
 #if SHOW_LOG
     printf("Power Switch Disable \r\n");
