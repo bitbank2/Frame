@@ -7,7 +7,6 @@
 #include "pmic.h"
 #include "status.h"
 #include "BfkLx0.h"
-#include "esp_sleep.h"
 
 extern "C"
 {
@@ -71,181 +70,24 @@ void gpio_cs_pins_init() // set all pins HIGH
 void epd_gpio_init()
 {
   // Initialize EPD control pins on ESP32-C5
-  pinMode(EPD_RST, OUTPUT);
-  pinMode(EPD_BUSY, INPUT);
+  // pinMode(EXP2_EPD_RST, OUTPUT);
+  // pinMode(EPD_BUSY, INPUT);
 
-  // Set reset pin HIGH (not in reset)
-  digitalWrite(EPD_RST, HIGH);
+  // // Set reset pin HIGH (not in reset)
+  // digitalWrite(EXP2_EPD_RST, HIGH);
 
   Serial.println("EPD GPIO initialized: RST=OUTPUT, BUSY=INPUT");
 }
-void printWakeupReason()
-{
-  esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
-  switch (cause)
-  {
-  case ESP_SLEEP_WAKEUP_GPIO:
-    Serial.println("[SLEEP] Wakeup cause: GPIO (IO27 / INT2)");
-    break;
-  case ESP_SLEEP_WAKEUP_UNDEFINED:
-    Serial.println("[SLEEP] Wakeup cause: Power-on / reset (not deep sleep)");
-    break;
-  default:
-    Serial.printf("[SLEEP] Wakeup cause: %d\n", (int)cause);
-    break;
-  }
-}
-RTC_DATA_ATTR uint16_t lastKnownState1 = 0xFFFF;
-RTC_DATA_ATTR uint16_t lastKnownState2 = 0xFFFF;
-
-// uint16_t lastKnownState = 0xFFFF; // Store this globally
-
-void handleInterrupt1()
-{
-  // Reading 16 bits clears the INT pin automatically
-  uint16_t currentState1 = expander1.read16();
-  if (expander1.lastError() != TCA9555_OK)
-  {
-    Serial.println("I2C Read Failed - INT not cleared!");
-    return;
-  }
-  // XOR finds the bits that changed (result is '1' where bits differ)
-  uint16_t changedPins1 = currentState1 ^ lastKnownState1;
-
-  for (int i = 0; i < 16; i++)
-  {
-    if ((changedPins1 >> i) & 0x01)
-    {
-      bool pinLevel = (currentState1 >> i) & 0x01;
-      Serial.print("Pin ");
-      Serial.print(i);
-      Serial.println(pinLevel ? " changed to HIGH" : " changed to LOW");
-    }
-  }
-
-  lastKnownState1 = currentState1; // Update for next time
-}
-void handleInterrupt2()
-{
-  // Reading 16 bits clears the INT pin automatically
-  uint16_t currentState2 = expander2.read16();
-  if (expander2.lastError() != TCA9555_OK)
-  {
-    Serial.println("I2C Read Failed - INT not cleared!");
-    return;
-  }
-  // XOR finds the bits that changed (result is '1' where bits differ)
-  uint16_t changedPins2 = currentState2 ^ lastKnownState2;
-
-  for (int i = 0; i < 16; i++)
-  {
-    if ((changedPins2 >> i) & 0x01)
-    {
-      bool pinLevel = (currentState2 >> i) & 0x01;
-      Serial.print("Pin ");
-      Serial.print(i);
-      Serial.println(pinLevel ? " changed to HIGH" : " changed to LOW");
-    }
-  }
-
-  lastKnownState2 = currentState2; // Update for next time
-}
-void enterDeepSleep()
-{
-  // Serial.println("[SLEEP] Configuring IO as deep sleep wakeup source (active LOW)...");
-  // setGpioLevel_EXPANDER_2(8, LOW);
-  // expander2.write1(EXP2_EN_DC12, LOW);
-  // expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
-  // expander1.write1(EXP1_EN_V5A, LOW);
-  // expander2.write1(EXP2_EN_V5D, LOW);
-  // expander1.pinMode1(EXP1_EN_V5A, OUTPUT);
-  // expander2.pinMode1(EXP2_EN_V5D, OUTPUT);
-  // expander2.write1(EXP2_EN_1_35V, LOW);
-  // expander2.pinMode1(EXP2_EN_1_35V, OUTPUT);
-  Serial.println("[SLEEP] Configuring IO as deep sleep wakeup source (active LOW)...");
-  expander2.write1(EXP2_EN_DC12, LOW);
-  delay(50);
-  expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
-  delay(50);
-  setGpioLevel_EXPANDER_2(8, LOW);
-  delay(50);
-  setGpioLevel(EXP1_VNCP_EN, LOW);
-  delay(50);
-  expander1.write1(EXP1_EN_V5A, LOW);
-  delay(50);
-  expander2.write1(EXP2_EN_V5D, LOW);
-  delay(50);
-  expander1.pinMode1(EXP1_EN_V5A, OUTPUT);
-  delay(50);
-  expander2.pinMode1(EXP2_EN_V5D, OUTPUT);
-  delay(50);
-  expander2.write1(EXP2_EN_1_35V, LOW);
-  delay(50);
-  expander2.pinMode1(EXP2_EN_1_35V, OUTPUT);
-  delay(50);
-  // expander1.write1(EXP1_SPI1_CS0, HIGH);
-  // expander1.write1(EXP1_SPI1_CS1, HIGH);
-  // expander1.write1(EXP1_SPI1_CS2, HIGH);
-  // expander1.write1(EXP1_SPI1_CS3, HIGH);
-  // expander1.write1(EXP1_SPI2_CS0, HIGH);
-  // expander1.write1(EXP1_SPI2_CS1, HIGH);
-  // expander1.write1(EXP1_SPI2_CS2, HIGH);
-  // expander1.write1(EXP1_SPI2_CS3, HIGH);
-  // Initialize all SPI chip select pins as outputs (active low, so start HIGH)
-  expander1.pinMode1(EXP1_SPI1_CS3, INPUT);
-  expander1.pinMode1(EXP1_SPI1_CS2, INPUT);
-  expander1.pinMode1(EXP1_SPI1_CS1, INPUT);
-  expander1.pinMode1(EXP1_SPI1_CS0, INPUT);
-  expander1.pinMode1(EXP1_SPI2_CS3, INPUT);
-  expander1.pinMode1(EXP1_SPI2_CS2, INPUT);
-  expander1.pinMode1(EXP1_SPI2_CS1, INPUT);
-  expander1.pinMode1(EXP1_SPI2_CS0, INPUT);
-  delay(50);
-  handleInterrupt1();
-  handleInterrupt2();
-  // IO27 is connected to INT2 of TCA9555 expander 2 (active LOW)
-  pinMode(0, INPUT);
-  pinMode(1, INPUT);
-  pinMode(2, INPUT);
-  pinMode(3, INPUT);
-  pinMode(4, INPUT);
-  pinMode(5, INPUT);
-  pinMode(6, INPUT);
-  pinMode(7, INPUT);
-  pinMode(8, INPUT);
-  pinMode(9, INPUT);
-  pinMode(10, INPUT);
-  pinMode(13, INPUT);
-  pinMode(14, INPUT);
-  pinMode(23, INPUT);
-  pinMode(24, INPUT);
-  pinMode(25, INPUT);
-  pinMode(26, INPUT);
-  pinMode(27, INPUT);
-  pinMode(28, INPUT);
-  delay(100);
-  esp_err_t err = esp_deep_sleep_enable_gpio_wakeup(1ULL << 4, ESP_GPIO_WAKEUP_GPIO_LOW); // 4
-  if (err != ESP_OK)
-  {
-    Serial.printf("[SLEEP] ERROR: Failed to configure GPIO wakeup: %d\n", err);
-    return;
-  }
-
-  Serial.println("[SLEEP] Entering deep sleep. Will wake on IO27 LOW.");
-  Serial.flush();
-  esp_deep_sleep_start();
-}
-
 // Interrupt service routines
-void IRAM_ATTR expander1_ISR()
-{
-  expander1_interrupt = true;
-}
+// void IRAM_ATTR expander1_ISR()
+// {
+//   expander1_interrupt = true;
+// }
 
-void IRAM_ATTR expander2_ISR()
-{
-  expander2_interrupt = true;
-}
+// void IRAM_ATTR expander2_ISR()
+// {
+//   expander2_interrupt = true;
+// }
 
 // I2C Scanner function to find all devices on the bus
 void scanI2C()
@@ -310,11 +152,59 @@ void scanI2C()
   Serial.println("====================================\n");
 }
 
+#include "FS.h"
+#include "SD.h"
+#include "SPI.h"
+
+// Define pins based on your schematic
+#define SD_MISO 8
+#define SD_MOSI 10
+#define SD_SCLK 9
+// #define SD_CS 2
+
+void listDir(fs::FS &fs, const char *dirname, uint8_t levels)
+{
+  Serial.printf("Listing directory: %s\n", dirname);
+
+  File root = fs.open(dirname);
+  if (!root)
+  {
+    Serial.println("Failed to open directory");
+    return;
+  }
+  if (!root.isDirectory())
+  {
+    Serial.println("Not a directory");
+    return;
+  }
+
+  File file = root.openNextFile();
+  while (file)
+  {
+    if (file.isDirectory())
+    {
+      Serial.print("  DIR : ");
+      Serial.println(file.name());
+      if (levels)
+      {
+        listDir(fs, file.path(), levels - 1);
+      }
+    }
+    else
+    {
+      Serial.print("  FILE: ");
+      Serial.print(file.name());
+      Serial.print("  SIZE: ");
+      Serial.println(file.size());
+    }
+    file = root.openNextFile();
+  }
+}
 void setup()
 {
   Serial.begin(115200);
-  byte exp2addr = 0x21;
-  byte error;
+  // byte exp2addr = 0x21;
+  // byte error;
   delay(2000); // Longer delay for USB CDC to initialize on ESP32-C5
 
   // Wait for Serial to be ready (important for USB CDC)
@@ -324,32 +214,31 @@ void setup()
   }
 
   Serial.println("\n\n=== ESP32-C5 Starting ===");
-  printWakeupReason();
   Serial.println("Hello world!");
   Serial.println();
 
   // PSRAM check
-  if (psramFound())
-  {
-    Serial.println("[PSRAM] Connected successfully");
-    Serial.printf("[PSRAM] Total size : %u bytes (%.1f KB)\n", ESP.getPsramSize(), ESP.getPsramSize() / 1024.0f);
-    Serial.printf("[PSRAM] Free        : %u bytes (%.1f KB)\n", ESP.getFreePsram(), ESP.getFreePsram() / 1024.0f);
-  }
-  else
-  {
-    Serial.println("[PSRAM] ERROR: Not found or not initialized!");
-  }
-  Serial.println();
+  // if (psramFound())
+  // {
+  //   Serial.println("[PSRAM] Connected successfully");
+  //   Serial.printf("[PSRAM] Total size : %u bytes (%.1f KB)\n", ESP.getPsramSize(), ESP.getPsramSize() / 1024.0f);
+  //   Serial.printf("[PSRAM] Free        : %u bytes (%.1f KB)\n", ESP.getFreePsram(), ESP.getFreePsram() / 1024.0f);
+  // }
+  // else
+  // {
+  //   Serial.println("[PSRAM] ERROR: Not found or not initialized!");
+  // }
+  // Serial.println();
 
-  Serial.println("TCA9555 I/O Expander Test");
-  Serial.println("Initializing I2C...");
+  // Serial.println("TCA9555 I/O Expander Test");
+  // Serial.println("Initializing I2C...");
 
-  // Initialize I2C FIRST before using it
-  Serial.print("Calling Wire.begin(");
-  Serial.print(I2C_SDA);
-  Serial.print(", ");
-  Serial.print(I2C_SCL);
-  Serial.println(")...");
+  // // Initialize I2C FIRST before using it
+  // Serial.print("Calling Wire.begin(");
+  // Serial.print(I2C_SDA);
+  // Serial.print(", ");
+  // Serial.print(I2C_SCL);
+  // Serial.println(")...");
 
   // Try with explicit frequency parameter
   if (!Wire.begin(I2C_SDA, I2C_SCL, 100000))
@@ -367,131 +256,48 @@ void setup()
       }
     }
   }
+  delay(1000);
+  Serial.println("1");
+  pinMode(EXP_EN, OUTPUT);
+  delay(10);
+  digitalWrite(EXP_EN, HIGH);
+  delay(100);
+  // Serial.println("I2C initialized successfully!");
+  // Serial.print("SDA: GPIO");
+  // Serial.println(I2C_SDA);
+  // Serial.print("SCL: GPIO");
+  // Serial.println(I2C_SCL);
 
-  Serial.println("I2C initialized successfully!");
-  Serial.print("SDA: GPIO");
-  Serial.println(I2C_SDA);
-  Serial.print("SCL: GPIO");
-  Serial.println(I2C_SCL);
-
-  Wire.beginTransmission(exp2addr);
-  error = Wire.endTransmission();
-  Serial.print("Error: ");
-  Serial.println(error);
-  // scanI2C();
+  // Wire.beginTransmission(exp2addr);
+  // error = Wire.endTransmission();
+  // Serial.print("Error: ");
+  // Serial.println(error);
   pinMode(PMIC_PG, INPUT);
   pinMode(EPD_BUSY, INPUT);
-  pinMode(PMIC_PS, OUTPUT);
-  pinMode(TOOGLE_SEL1, OUTPUT);
-  pinMode(TOOGLE_SEL2, OUTPUT);
 
-  digitalWrite(PMIC_PS, LOW);
-  digitalWrite(TOOGLE_SEL1, LOW);
-  digitalWrite(TOOGLE_SEL2, LOW);
-  delay(10);
-  handleInterrupt1();
-  handleInterrupt2();
-  // expander2.write16(0x0000);
-  // expander2.pinMode16(0x0000);
-  // handleInterrupt();
-  // delay(4000);
-  // Serial.println("-");
-  // handleInterrupt();
-  // delay(4000);
-  // Serial.println("-");
-  // handleInterrupt();
-  // delay(10);
-  // Serial.println("-");
-  // handleInterrupt();
-  // delay(10);
-  // Serial.println("-");
-  // handleInterrupt();
-  // delay(10);
-  // Serial.println("-");
-  // handleInterrupt();
-  // delay(10000);
-  expander2.write1(8, LOW);
-  expander2.pinMode1(8, OUTPUT);
-  expander2.write1(9, LOW);
-  expander2.pinMode1(9, OUTPUT);
-  expander2.write1(10, LOW);
-  expander2.pinMode1(10, OUTPUT);
-  expander2.write1(11, LOW);
-  expander2.pinMode1(11, OUTPUT);
-  expander2.write1(12, LOW);
-  expander2.pinMode1(12, OUTPUT);
-  expander2.write1(13, LOW);
-  expander2.pinMode1(13, OUTPUT);
-  expander2.write1(14, LOW);
-  expander2.pinMode1(14, OUTPUT);
-  expander2.pinMode1(15, INPUT);
-  expander2.pinMode1(0, INPUT);
-  expander2.pinMode1(1, INPUT);
-  expander2.pinMode1(2, INPUT);
-  expander2.pinMode1(3, INPUT);
-  expander2.pinMode1(4, INPUT);
-  expander2.pinMode1(5, INPUT);
-  expander2.pinMode1(6, INPUT);
-  expander2.pinMode1(7, INPUT);
-  /////
-  expander1.write1(0, LOW);
-  expander1.pinMode1(0, OUTPUT);
-  expander1.write1(1, LOW);
-  expander1.pinMode1(1, OUTPUT);
-  expander1.write1(2, LOW);
-  expander1.pinMode1(2, OUTPUT);
-  expander1.write1(3, LOW);
-  expander1.pinMode1(3, OUTPUT);
-  expander1.write1(4, LOW);
-  expander1.pinMode1(4, OUTPUT);
-  expander1.write1(5, LOW);
-  expander1.pinMode1(5, OUTPUT);
-  expander1.write1(6, LOW);
-  expander1.pinMode1(6, OUTPUT);
-  expander1.write1(7, LOW);
-  expander1.pinMode1(7, OUTPUT);
-  /////
-  // expander2.write1(12, LOW);
-  // expander2.pinMode1(12, OUTPUT);
-  // expander2.write1(13, LOW);
-  // expander2.pinMode1(13, OUTPUT);
-  // expander2.write1(14, LOW);
-  // expander2.pinMode1(14, OUTPUT);
-  //////
-  expander1.pinMode1(15, INPUT);
-  expander1.pinMode1(14, INPUT);
-  expander1.pinMode1(13, INPUT);
-  expander1.pinMode1(12, INPUT);
-  expander1.pinMode1(11, INPUT);
-  expander1.pinMode1(10, INPUT);
-  expander1.pinMode1(9, INPUT);
-  expander1.pinMode1(8, INPUT);
-  handleInterrupt1();
-  handleInterrupt2();
-  // Serial.println("- 1");
-  // delay(10000);
-  // handleInterrupt();
-  // Serial.println("- 2");
-  // delay(1000);
-  // handleInterrupt();
-  // Serial.println("- 3");
-  // delay(1000);
-  // expander2.write1(13, LOW);
-  // expander2.pinMode1(13, OUTPUT);
+  // pinMode(TOOGLE_SEL1, OUTPUT);
+  // pinMode(TOOGLE_SEL2, OUTPUT);
+  expander1.write1(EXP1_PMIC_PS, LOW);
+  expander1.pinMode1(EXP1_PMIC_PS, OUTPUT);
+
+  // digitalWrite(TOOGLE_SEL1, LOW);
+  // digitalWrite(TOOGLE_SEL2, LOW);
   // expanders_voltage_gpio_init();
-  // expander1.write1(EXP1_PMIC_EN, LOW);
-  // expander1.pinMode1(EXP1_PMIC_EN, OUTPUT);
-  // Serial.println("Setting voltage enable pins HIGH...");
+  // expander1.write1(PMIC_EN, LOW);
+  // expander1.pinMode1(PMIC_EN, OUTPUT);
+  delay(1000);
+  Serial.println("Setting voltage enable pins HIGH...");
   // expander1.write1(EXP1_EN_V5A, HIGH);
   // expander2.write1(EXP2_EN_V5D, HIGH);
+  // expander2.write1(EXP2_EN_1_35V, HIGH);
+
   // expander1.pinMode1(EXP1_EN_V5A, OUTPUT);
   // expander2.pinMode1(EXP2_EN_V5D, OUTPUT);
-  // expander2.write1(EXP2_EN_1_35V, HIGH);
   // expander2.pinMode1(EXP2_EN_1_35V, OUTPUT);
   // setGpioLevel(EXP1_VNCP_EN, GPIO_HIGH);
   // Serial.println("5v");
   // Serial.println("1");
-  // delay(1000);
+  delay(1000);
   // Serial.println("2");
   // delay(1000);
   // Serial.println("3");
@@ -505,19 +311,6 @@ void setup()
   // Serial.println("EN-SWITCH");
   // setGpioLevel_EXPANDER_2(8, GPIO_HIGH);
   // delay(1000);
-  // Serial.println("1");
-  // delay(1000);
-  // Serial.println("2");
-  // delay(1000);
-  // Serial.println("3");
-  // delay(1000);
-  // Serial.println("4");
-  // delay(1000);
-  // Serial.println("5");
-  // delay(1000);
-  // setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH); // -19v
-  // setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH); // +19v
-  // delay(5000);
   // expander2.write1(EXP2_EN_DC12, HIGH);
   // expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
   // Serial.println("12v");
@@ -525,9 +318,67 @@ void setup()
   // expander1.write1(EXP1_EN_V5A, HIGH);
   // expander2.write1(EXP2_EN_V5D, HIGH);
   // // expander2.write1(EXP2_EN_1_35V, HIGH);
+
   // expander1.pinMode1(EXP1_EN_V5A, OUTPUT);
   // expander2.pinMode1(EXP2_EN_V5D, OUTPUT);
   // delay(1000);
+
+  // Initialize SPI with your specific pins
+  expander1.write1(EXP1_CS_SD_CARD, LOW);
+  expander1.pinMode1(EXP1_CS_SD_CARD, OUTPUT);
+  delay(1000);
+  Serial.println("2");
+
+  SPI.begin(SD_SCLK, SD_MISO, SD_MOSI, 7);
+  delay(1000);
+  Serial.println("3");
+
+  if (!SD.begin(7))
+  {
+    Serial.println("Card Mount Failed");
+    return;
+  }
+  delay(1000);
+  Serial.println("4");
+  // uint8_t cardType = SD.cardType();
+  // if (cardType == CARD_NONE)
+  // {
+  //   Serial.println("No SD card attached");
+  //   return;
+  // }
+  Serial.println("SD Card Initialized via Expander CS.");
+
+  // List files
+  File root = SD.open("/");
+  File file = root.openNextFile();
+  while (file)
+  {
+    Serial.print("FILE: ");
+    Serial.println(file.name());
+    file = root.openNextFile();
+  }
+  Serial.println("SD Card Initialized.");
+  delay(1000);
+  expander1.pinMode1(EXP1_CS_SD_CARD, INPUT);
+  delay(1000);
+  if (!SD.begin(7))
+  {
+    Serial.println("Card Mount Failed");
+    return;
+  }
+  delay(1000);
+  while (file)
+  {
+    Serial.print("FILE: ");
+    Serial.println(file.name());
+    file = root.openNextFile();
+  }
+  delay(1000);
+  Serial.println("END");
+  delay(1000);
+  // List files in the root directory
+  // listDir(SD, "/", 0);
+
   // setGpioLevel_EXPANDER_2(EXP2_EN_DC19, GPIO_HIGH);
   // printf("EN DC19\n");
   // delayms(100);
@@ -757,7 +608,7 @@ void setup()
   // }
   // delayms(2000);
   // enablePmic();
-  // // powerSwitchEnable();
+  // powerSwitchEnable();
   // delayms(2000);
   // disablePmic();
   // delayms(5000);
@@ -786,7 +637,7 @@ void setup()
   // delay(50);
 
   // printf("======================================\n\n");
-  enterDeepSleep();
+
   // begin() sets all pins as inputs by default
   /*
   if (expander1.begin()) {
@@ -834,6 +685,48 @@ void setup()
 
 void loop()
 {
-  // delay(1000);
-  // handleInterrupt();
+  // Check for interrupts from expander1
+  /*if (expander1_interrupt) {
+    expander1_interrupt = false;
+    Serial.println("Expander 1 interrupt detected!");
+
+    // Read the input ports to see what changed
+    uint16_t inputs = expander1.read16();
+    Serial.print("Expander 1 inputs: 0x");
+    Serial.println(inputs, HEX);
+  }
+
+  // Check for interrupts from expander2
+  if (expander2_interrupt) {
+    expander2_interrupt = false;
+    Serial.println("Expander 2 interrupt detected!");
+
+    // Read the input ports to see what changed
+    uint16_t inputs = expander2.read16();
+    Serial.print("Expander 2 inputs: 0x");
+    Serial.println(inputs, HEX);
+  }
+
+  // Example: Toggle pin 0 of expander1
+  static unsigned long lastToggle = 0;
+  if (millis() - lastToggle > 1000) {
+    lastToggle = millis();
+    static bool pinState = false;
+    pinState = !pinState;
+
+    expander1.write1(0, pinState ? HIGH : LOW);
+    Serial.print("Expander 1, Pin 0: ");
+    Serial.println(pinState ? "HIGH" : "LOW");
+  }
+
+  // Example: Write pattern to entire port 0 of expander2
+  static unsigned long lastPattern = 0;
+  if (millis() - lastPattern > 2000) {
+    lastPattern = millis();
+    static uint8_t pattern = 0;
+    expander2.write8(0, pattern++);
+    Serial.print("Expander 2, Port 0 pattern: 0x");
+    Serial.println(pattern - 1, HEX);
+  }
+ */
 }

@@ -71,11 +71,14 @@ void gpio_cs_pins_init() // set all pins HIGH
 void epd_gpio_init()
 {
   // Initialize EPD control pins on ESP32-C5
-  pinMode(EPD_RST, OUTPUT);
+  // pinMode(EPD_RST, OUTPUT);
+  expander2.write1(EXP2_EPD_RST, HIGH);
+  expander2.pinMode1(EXP2_EPD_RST, OUTPUT);
+
   pinMode(EPD_BUSY, INPUT);
 
   // Set reset pin HIGH (not in reset)
-  digitalWrite(EPD_RST, HIGH);
+  // digitalWrite(EPD_RST, HIGH);
 
   Serial.println("EPD GPIO initialized: RST=OUTPUT, BUSY=INPUT");
 }
@@ -103,6 +106,9 @@ void enterDeepSleep()
   expander2.write1(EXP2_EN_DC12, LOW);
   delay(50);
   expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
+  delay(50);
+  setGpioLevel(EXP1_VDDP_EN, GPIO_LOW);
+  setGpioLevel(EXP1_VDDN_EN, GPIO_LOW);
   delay(50);
   setGpioLevel_EXPANDER_2(8, LOW);
   delay(50);
@@ -159,12 +165,15 @@ void enterDeepSleep()
   pinMode(27, INPUT);
   pinMode(28, INPUT);
   delay(100);
-  // esp_err_t err = esp_deep_sleep_enable_gpio_wakeup(1ULL << 4, ESP_GPIO_WAKEUP_GPIO_LOW); // pin5 //26 or 28 // 4
-  // if (err != ESP_OK)
-  // {
-  //   Serial.printf("[SLEEP] ERROR: Failed to configure GPIO wakeup: %d\n", err);
-  //   return;
-  // }
+  esp_err_t err = esp_deep_sleep_enable_gpio_wakeup(1ULL << 0, ESP_GPIO_WAKEUP_GPIO_LOW);  // pin5 //26 or 28 // 4
+  esp_err_t err1 = esp_deep_sleep_enable_gpio_wakeup(1ULL << 1, ESP_GPIO_WAKEUP_GPIO_LOW); // pin5 //26 or 28 // 4
+  esp_err_t err2 = esp_deep_sleep_enable_gpio_wakeup(1ULL << 4, ESP_GPIO_WAKEUP_GPIO_LOW); // pin5 //26 or 28 // 4
+  esp_err_t err3 = esp_deep_sleep_enable_gpio_wakeup(1ULL << 5, ESP_GPIO_WAKEUP_GPIO_LOW); // pin5 //26 or 28 // 4
+  if (err != ESP_OK)
+  {
+    Serial.printf("[SLEEP] ERROR: Failed to configure GPIO wakeup: %d\n", err);
+    return;
+  }
 
   Serial.println("[SLEEP] Entering deep sleep. Will wake on IO27 LOW.");
   Serial.flush();
@@ -313,18 +322,24 @@ void setup()
   error = Wire.endTransmission();
   Serial.print("Error: ");
   Serial.println(error);
-  pinMode(PMIC_PG, INPUT);
-  pinMode(EPD_BUSY, INPUT);
-  pinMode(PMIC_PS, OUTPUT);
-  pinMode(TOOGLE_SEL1, OUTPUT);
-  pinMode(TOOGLE_SEL2, OUTPUT);
+  pinMode(PMIC_PG, INPUT);    // PG io 26
+  pinMode(EPD_BUSY, INPUT);   // busy io 27
+  // pinMode(PMIC_PS, OUTPUT);   // PS expander1 p15
+  // digitalWrite(PMIC_PS, LOW); // PS expander1 p15
+  expander1.write1(EXP1_PMIC_PS, LOW);
+  expander1.pinMode1(EXP1_PMIC_PS, OUTPUT);
+  // pinMode(TOOGLE_SEL1, OUTPUT); // not used
+  // pinMode(TOOGLE_SEL2, OUTPUT); // not used
 
-  digitalWrite(PMIC_PS, LOW);
-  digitalWrite(TOOGLE_SEL1, LOW);
-  digitalWrite(TOOGLE_SEL2, LOW);
+  // digitalWrite(TOOGLE_SEL1, LOW);// not used
+  // digitalWrite(TOOGLE_SEL2, LOW);// not used
+  pinMode(PMIC_EN, OUTPUT); // PS expander1 p15
+  digitalWrite(PMIC_EN, LOW);
   // expanders_voltage_gpio_init();
-  expander1.write1(EXP1_PMIC_EN, LOW);
-  expander1.pinMode1(EXP1_PMIC_EN, OUTPUT);
+  // pinMode(25, OUTPUT); // ist EN
+  // digitalWrite(25, LOW);
+  // expander1.write1(EXP1_PMIC_EN, LOW);// changed
+  // expander1.pinMode1(EXP1_PMIC_EN, OUTPUT);// changed
 
   Serial.println("Setting voltage enable pins HIGH...");
   // expander1.write1(EXP1_EN_V5A, HIGH);
@@ -532,7 +547,7 @@ void setup()
     memset(colorBuffers[i], colorValues[i], EPD_IMAGE_DATA_BUFFER);
     printf("[EPD] %s buffer ready in PSRAM (%u bytes)\n", colorNames[i], EPD_IMAGE_DATA_BUFFER);
   }
-
+  delayms(10);
   // Check driver IC status
   if (epdCheckDriverICStatus() == DONE)
   {
@@ -558,7 +573,7 @@ void setup()
     printf("WARNING: Some driver ICs did not respond\n");
   }
 
-  delayms(50000);
+  // delayms(50000);
   powerSwitchDisable();
   // delay(5000);
   // setGpioLevel_EXPANDER_2(EXP2_EN_NEGATIVE_3_5V, GPIO_LOW); // -3.5v our DC-DC EN

@@ -1,0 +1,1671 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <SPI.h>
+#include "TCA9555.h"
+#include "pindefine.h"
+#include "globals.h"
+#include "pmic.h"
+#include "status.h"
+#include "BfkLx0.h"
+#include <SparkFunBQ27441.h>
+#include <math.h>
+
+extern "C"
+{
+#include "epd.h"
+#include "comm.h"
+}
+
+// Define pins for ESP32-C5
+// IMPORTANT: ESP32-C5 has specific GPIO restrictions
+// Common valid I2C pins for ESP32-C5: GPIO 6/7, GPIO 8/9, GPIO 18/19
+// GPIO 2/3 may cause ESP_ERR_INVALID_STATE on some ESP32-C5 boards
+#define I2C_SDA 2 // Try GPIO 6 for SDA (change if needed)
+#define I2C_SCL 3 // Try GPIO 7 for SCL (change if needed)
+
+// Interrupt pins from TCA9555 expanders
+#define GPIO_INT1 28 // Interrupt from first expander
+#define GPIO_INT2 27 // Interrupt from second expander
+
+// Create two TCA9555 objects with different I2C addresses
+// Default address is 0x20 (when A0, A1, A2 are all LOW)
+// Second device should have different address (set via hardware pins A0, A1, A2)
+TCA9555 expander1(0x20); // First expander at default address
+TCA9555 expander2(0x21); // Second expander (adjust address based on hardware)
+
+// Interrupt flags
+volatile bool expander1_interrupt = false;
+volatile bool expander2_interrupt = false;
+
+volatile bool wakePin = false;
+void wakePIN()
+{
+  wakePin = true;
+  // resumeLoop();
+  // This function will be called when wake-up occurs
+  // You can leave it empty or add code that needs to run after wake-up
+}
+// void expanders_voltage_gpio_init()
+// {
+//   expander1.pinMode1(EXP1_EN_V5A, OUTPUT);
+//   expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V, OUTPUT);
+//   expander2.pinMode1(EXP2_EN_1_35V, OUTPUT);
+//   expander2.pinMode1(EXP2_EN_V5D, OUTPUT);
+//   expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
+//   expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
+// }
+
+void gpio_cs_pins_init() // set all pins HIGH
+{
+  // Set all CS pins HIGH (inactive)
+  expander1.write1(EXP1_SPI1_CS0, HIGH);
+  expander1.write1(EXP1_SPI1_CS1, HIGH);
+  expander1.write1(EXP1_SPI1_CS2, HIGH);
+  expander1.write1(EXP1_SPI1_CS3, HIGH);
+  expander1.write1(EXP1_SPI2_CS0, HIGH);
+  expander1.write1(EXP1_SPI2_CS1, HIGH);
+  expander1.write1(EXP1_SPI2_CS2, HIGH);
+  expander1.write1(EXP1_SPI2_CS3, HIGH);
+  // Initialize all SPI chip select pins as outputs (active low, so start HIGH)
+  expander1.pinMode1(EXP1_SPI1_CS3, OUTPUT);
+  expander1.pinMode1(EXP1_SPI1_CS2, OUTPUT);
+  expander1.pinMode1(EXP1_SPI1_CS1, OUTPUT);
+  expander1.pinMode1(EXP1_SPI1_CS0, OUTPUT);
+  expander1.pinMode1(EXP1_SPI2_CS3, OUTPUT);
+  expander1.pinMode1(EXP1_SPI2_CS2, OUTPUT);
+  expander1.pinMode1(EXP1_SPI2_CS1, OUTPUT);
+  expander1.pinMode1(EXP1_SPI2_CS0, OUTPUT);
+}
+
+void epd_gpio_init()
+{
+  // Initialize EPD control pins on ESP32-C5
+  // pinMode(EXP2_EPD_RST, OUTPUT);
+  // pinMode(EPD_BUSY, INPUT);
+
+  // // Set reset pin HIGH (not in reset)
+  // digitalWrite(EXP2_EPD_RST, HIGH);
+
+  Serial.println("EPD GPIO initialized: RST=OUTPUT, BUSY=INPUT");
+}
+// Interrupt service routines
+// void IRAM_ATTR expander1_ISR()
+// {
+//   expander1_interrupt = true;
+// }
+
+// void IRAM_ATTR expander2_ISR()
+// {
+//   expander2_interrupt = true;
+// }
+
+// I2C Scanner function to find all devices on the bus
+void scanI2C()
+{
+  byte error, address;
+  int deviceCount = 0;
+
+  Serial.println("\n========== I2C Bus Scanner ==========");
+  Serial.println("Scanning I2C bus (addresses 0x01 to 0x7F)...\n");
+
+  for (address = 1; address < 127; address++)
+  {
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+
+    if (error == 0)
+    {
+      Serial.print("Device found at address 0x");
+      if (address < 16)
+        Serial.print("0");
+      Serial.print(address, HEX);
+      Serial.print(" (");
+      Serial.print(address);
+      Serial.print(")");
+
+      // Identify known devices
+      if (address >= 0x20 && address <= 0x27)
+      {
+        Serial.print(" - Likely TCA9555/TCA9535");
+        if (address == 0x20)
+          Serial.print(" (Expander 1)");
+        if (address == 0x21)
+          Serial.print(" (Expander 2)");
+      }
+      else
+      {
+        Serial.print(" - Unknown device (possibly IST9201?)");
+      }
+      Serial.println();
+      deviceCount++;
+    }
+    else if (error == 4)
+    {
+      Serial.print("Unknown error at address 0x");
+      if (address < 16)
+        Serial.print("0");
+      Serial.println(address, HEX);
+    }
+  }
+
+  Serial.println("\n====================================");
+  if (deviceCount == 0)
+  {
+    Serial.println("No I2C devices found!");
+    Serial.println("Check connections and pull-up resistors.");
+  }
+  else
+  {
+    Serial.print("Total devices found: ");
+    Serial.println(deviceCount);
+  }
+  Serial.println("====================================\n");
+}
+
+#include "FS.h"
+#include "SD.h"
+#include "SPI.h"
+
+// Define pins based on your schematic
+#define SD_MISO 8
+#define SD_MOSI 10
+#define SD_SCLK 9
+// #define SD_CS 2
+float convertXemicsToFloat(uint8_t xemics[4])
+{
+  // Extract components from the 4-byte format
+  int exponent = (int)xemics[0] - 128;     // Biased exponent (subtract 128)
+  int sign = (xemics[1] & 0x80) ? -1 : +1; // Sign bit (bit 7 of byte 1)
+
+  // Extract mantissa (23 bits) and add implied 1-bit
+  uint32_t mantissa = ((xemics[1] & 0x7F) << 16 | // 7 bits from byte 1
+                       xemics[2] << 8 |           // 8 bits from byte 2
+                       xemics[3]) |               // 8 bits from byte 3
+                      0x800000;                   // Add implied 1-bit at position 23
+
+  // Convert to float using ldexp (load exponent)
+  // -24 so the mantissa is valued like 0.1bbb... (0.5 <= value < 1.0)
+  // and then the exponent is applied
+  float value = sign * ldexp(mantissa, exponent - 24);
+
+  return value;
+}
+
+bool ensureCCGainPositive()
+{
+  uint8_t blockControl[] = {0x69, 0x00}; // Class 0x69, Block 0
+  uint8_t dataBuffer[32];
+  uint8_t checksumValue;
+
+  Serial.println("=== Ensuring CC_Gain is Positive ===");
+
+  // Step 1: Read current CC_Gain block
+  if (!lipo.i2cWriteBytes(0x3E, blockControl, 2))
+  {
+    Serial.println("Failed to set block data control");
+    return false;
+  }
+
+  delay(10);
+
+  if (!lipo.i2cReadBytes(0x40, dataBuffer, 32))
+  {
+    Serial.println("Failed to read data block");
+    return false;
+  }
+
+  // Step 2: Convert current CC_Gain to float and check sign
+  float currentCCGain = convertXemicsToFloat(&dataBuffer[4]);
+
+  Serial.print("Current CC_Gain: ");
+  Serial.println(currentCCGain, 6);
+
+  // Step 3: Check if CC_Gain is negative
+  if (currentCCGain >= 0)
+  {
+    Serial.println("CC_Gain is already positive - no change needed");
+    return true;
+  }
+
+  // Step 4: CC_Gain is negative, flip the sign bit
+  Serial.println("CC_Gain is negative - flipping to positive");
+
+  // Show bytes before flip
+  Serial.print("Before flip: ");
+  for (int i = 4; i < 8; i++)
+  {
+    if (dataBuffer[i] < 0x10)
+      Serial.print("0");
+    Serial.print(dataBuffer[i], HEX);
+    Serial.print(" ");
+  }
+  Serial.println();
+
+  // Flip sign bit (bit 7 of byte at offset 5)
+  dataBuffer[5] ^= 0x80; // XOR with 0x80 to flip bit 7
+
+  // Show bytes after flip
+  Serial.print("After flip:  ");
+  for (int i = 4; i < 8; i++)
+  {
+    if (dataBuffer[i] < 0x10)
+      Serial.print("0");
+    Serial.print(dataBuffer[i], HEX);
+    Serial.print(" ");
+  }
+  Serial.println();
+
+  // Step 5: Calculate new checksum
+  uint8_t sum = 0;
+  for (int i = 0; i < 32; i++)
+  {
+    sum += dataBuffer[i];
+  }
+  checksumValue = 255 - sum; // Two's complement checksum
+
+  Serial.print("New checksum: 0x");
+  if (checksumValue < 0x10)
+    Serial.print("0");
+  Serial.println(checksumValue, HEX);
+
+  // Step 6: Write modified block back
+  if (!lipo.i2cWriteBytes(0x3E, blockControl, 2))
+  {
+    Serial.println("Failed to set block control for writing");
+    return false;
+  }
+
+  delay(10);
+
+  if (!lipo.i2cWriteBytes(0x40, dataBuffer, 32))
+  {
+    Serial.println("Failed to write modified block");
+    return false;
+  }
+
+  delay(10);
+
+  // Step 7: Write checksum
+  if (!lipo.i2cWriteBytes(0x60, &checksumValue, 1))
+  {
+    Serial.println("Failed to write checksum");
+    return false;
+  }
+
+  delay(10);
+
+  // Step 8: Verify the change
+  if (!lipo.i2cWriteBytes(0x3E, blockControl, 2))
+  {
+    Serial.println("Failed to set block control for verification");
+    return false;
+  }
+
+  delay(10);
+
+  uint8_t verifyBuffer[32];
+  if (!lipo.i2cReadBytes(0x40, verifyBuffer, 32))
+  {
+    Serial.println("Failed to read for verification");
+    return false;
+  }
+
+  // Convert back to float to verify
+  float newCCGain = convertXemicsToFloat(&verifyBuffer[4]);
+
+  Serial.print("New CC_Gain: ");
+  Serial.println(newCCGain, 6);
+
+  // Check if successful
+  if (newCCGain >= 0)
+  {
+    Serial.println("SUCCESS: CC_Gain is now positive!");
+    Serial.print("Changed from ");
+    Serial.print(currentCCGain, 6);
+    Serial.print(" to ");
+    Serial.println(newCCGain, 6);
+    return true;
+  }
+  else
+  {
+    Serial.println("FAILED: CC_Gain is still negative");
+    return false;
+  }
+}
+bool executeGoldenFile()
+{
+  // Declare all variables at the top
+  uint8_t cmd1[] = {0x01, 0x00};
+  uint8_t cmd2[] = {0x02, 0x00};
+  uint8_t readBuffer[2];
+  uint8_t unseal1[] = {0x14, 0x04};
+  uint8_t unseal2[] = {0x72, 0x36};
+  uint8_t unseal3[] = {0xFF, 0xFF};
+  uint8_t unseal4[] = {0xFF, 0xFF};
+  uint8_t cfgUpdate[] = {0x13, 0x00};
+  uint8_t exitCfg1[] = {0x00, 0x00};
+  uint8_t exitCfg2[] = {0x42, 0x00};
+
+  // Block control arrays
+  uint8_t blockControl1[] = {0x02, 0x00};
+  uint8_t blockControl2[] = {0x24, 0x00};
+  uint8_t blockControl3[] = {0x31, 0x00};
+  uint8_t blockControl4[] = {0x40, 0x00};
+  uint8_t blockControl5[] = {0x44, 0x00};
+  uint8_t blockControl6[] = {0x50, 0x00};
+  uint8_t blockControl7[] = {0x50, 0x01};
+  uint8_t blockControl8[] = {0x50, 0x02};
+  uint8_t blockControl9[] = {0x51, 0x00};
+  uint8_t blockControl10[] = {0x52, 0x00};
+  uint8_t blockControl11[] = {0x59, 0x00};
+  uint8_t blockControl12[] = {0x6D, 0x00};
+  uint8_t blockControl13[] = {0x70, 0x00};
+
+  // Data block arrays (updated with new golden file values)
+  uint8_t dataBlock1[] = {
+      0x02, 0x26, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+  uint8_t dataBlock2[] = {
+      0x00, 0x19, 0x28, 0x63, 0x5F, 0xFF, 0x62, 0x00, 0x32,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00};
+
+  uint8_t dataBlock3[] = {
+      0x0A, 0x0F, 0x02, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00};
+
+  uint8_t dataBlock4[] = {
+      0x25, 0xF8, 0x0F, 0x9F, 0x23, 0x00, 0x00, 0x14, 0x04,
+      0x00, 0x09, 0x04, 0x27, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00};
+
+  uint8_t dataBlock5[] = {
+      0x00, 0x32, 0x01, 0xC2, 0x30, 0x00, 0x03, 0x08, 0x98,
+      0x01, 0x00, 0x3C, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00};
+
+  uint8_t dataBlock6[] = {
+      0x01, 0xF4, 0x00, 0x1E, 0xC8, 0x14, 0x08, 0x00, 0x3C,
+      0x0E, 0x10, 0x00, 0x0A, 0x46, 0x05, 0x14, 0x05, 0x0F,
+      0x03, 0x20, 0x7F, 0xFF, 0x00, 0xF0, 0x46, 0x50, 0x18,
+      0x01, 0x90, 0x00, 0x64, 0x19};
+
+  uint8_t dataBlock7[] = {
+      0xDC, 0x5C, 0x60, 0x00, 0x7D, 0x00, 0x04, 0x03, 0x19,
+      0x25, 0x0F, 0x14, 0x0A, 0x78, 0x60, 0x28, 0x01, 0xF4,
+      0x00, 0x00, 0x00, 0x00, 0x43, 0x80, 0x04, 0x01, 0x14,
+      0x00, 0x08, 0x0B, 0xB8, 0x01};
+
+  uint8_t dataBlock8[] = {
+      0x2C, 0x0A, 0x01, 0x0A, 0x00, 0x00, 0x00, 0xC8, 0x00,
+      0x64, 0x02, 0x00, 0x00, 0x00, 0x00, 0x07, 0xD0, 0x01,
+      0x03, 0x5A, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00};
+
+  uint8_t dataBlock9[] = {
+      0x01, 0xC2, 0x00, 0x64, 0x00, 0x64, 0x00, 0x3C, 0x3C,
+      0x01, 0xB3, 0xB3, 0x01, 0x90, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00};
+
+  uint8_t dataBlock10[] = {
+      0x48, 0x00, 0x00, 0x00, 0x00, 0x81, 0x13, 0x88, 0x4A,
+      0x38, 0x0B, 0xB8, 0x00, 0xC8, 0x00, 0x32, 0x00, 0x14,
+      0x03, 0xE8, 0x01, 0x00, 0xA6, 0x00, 0x0A, 0xFF, 0x9E,
+      0xFF, 0x9C, 0x00, 0x01, 0x00};
+
+  uint8_t dataBlock11[] = {
+      0x00, 0x28, 0x00, 0x0F, 0x00, 0x10, 0x00, 0x14, 0x00,
+      0x17, 0x00, 0x10, 0x00, 0x13, 0x00, 0x15, 0x00, 0x15,
+      0x00, 0x16, 0x00, 0x16, 0x00, 0x19, 0x00, 0x1E, 0x00,
+      0x30, 0x00, 0x47, 0x00, 0x00};
+
+  uint8_t dataBlock12[] = {
+      0x14, 0xEF, 0x0E, 0xDD, 0x0E, 0xA2, 0x10, 0x68, 0x10,
+      0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00};
+
+  uint8_t dataBlock13[] = {
+      0x80, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00};
+
+  // Expected checksum values
+  uint8_t expectedChecksum1 = 0xA5;
+  uint8_t expectedChecksum2 = 0x69;
+  uint8_t expectedChecksum3 = 0xDF;
+  uint8_t expectedChecksum4 = 0xC5;
+  uint8_t expectedChecksum5 = 0xF9;
+  uint8_t expectedChecksum6 = 0xE4;
+  uint8_t expectedChecksum7 = 0xDB;
+  uint8_t expectedChecksum8 = 0x47;
+  uint8_t expectedChecksum9 = 0x04;
+  uint8_t expectedChecksum10 = 0x73;
+  uint8_t expectedChecksum11 = 0x66;
+  uint8_t expectedChecksum12 = 0xD5;
+  uint8_t expectedChecksum13 = 0xFF;
+
+  // Checksum arrays
+  uint8_t checksum1[] = {0xA5};
+  uint8_t checksum2[] = {0x69};
+  uint8_t checksum3[] = {0xDF};
+  uint8_t checksum4[] = {0xC5};
+  uint8_t checksum5[] = {0xF9};
+  uint8_t checksum6[] = {0xE4};
+  uint8_t checksum7[] = {0xDB};
+  uint8_t checksum8[] = {0x47};
+  uint8_t checksum9[] = {0x04};
+  uint8_t checksum10[] = {0x73};
+  uint8_t checksum11[] = {0x66};
+  uint8_t checksum12[] = {0xD5};
+  uint8_t checksum13[] = {0xFF};
+
+  // Checksum read buffers (allowing for 2-byte responses)
+  uint8_t checksumRead1[2];
+  uint8_t checksumRead2[2];
+  uint8_t checksumRead3[2];
+  uint8_t checksumRead4[2];
+  uint8_t checksumRead5[2];
+  uint8_t checksumRead6[2];
+  uint8_t checksumRead7[2];
+  uint8_t checksumRead8[2];
+  uint8_t checksumRead9[2];
+  uint8_t checksumRead10[2];
+  uint8_t checksumRead11[2];
+  uint8_t checksumRead12[2];
+  uint8_t checksumRead13[2];
+
+  // Verify Existing Firmware Version
+  if (!lipo.i2cWriteBytes(0x00, cmd1, 2))
+    return false;
+
+  Serial.println("C: AA 00 27 04");
+  if (!lipo.i2cReadBytes(0x00, readBuffer, 2))
+    return false;
+  Serial.print("Received: 0x");
+  if (readBuffer[1] < 0x10)
+    Serial.print("0");
+  Serial.print(readBuffer[1], HEX);
+  Serial.print(" 0x");
+  if (readBuffer[0] < 0x10)
+    Serial.print("0");
+  Serial.println(readBuffer[0], HEX);
+
+  if (!lipo.i2cWriteBytes(0x00, cmd2, 2))
+    return false;
+
+  Serial.println("C: AA 00 02 02");
+  if (!lipo.i2cReadBytes(0x00, readBuffer, 2))
+    return false;
+  Serial.print("Received: 0x");
+  if (readBuffer[1] < 0x10)
+    Serial.print("0");
+  Serial.print(readBuffer[1], HEX);
+  Serial.print(" 0x");
+  if (readBuffer[0] < 0x10)
+    Serial.print("0");
+  Serial.println(readBuffer[0], HEX);
+
+  // Unseal device
+  if (!lipo.i2cWriteBytes(0x00, unseal1, 2))
+    return false;
+  if (!lipo.i2cWriteBytes(0x00, unseal2, 2))
+    return false;
+  if (!lipo.i2cWriteBytes(0x00, unseal3, 2))
+    return false;
+  if (!lipo.i2cWriteBytes(0x00, unseal4, 2))
+    return false;
+  delay(1000);
+
+  // SET_CFGUPDATE
+  if (!lipo.i2cWriteBytes(0x00, cfgUpdate, 2))
+    return false;
+  delay(1100);
+
+  // Data Block 1
+  if (!lipo.i2cWriteBytes(0x3E, blockControl1, 2))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x40, dataBlock1, 33))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x60, checksum1, 1))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x3E, blockControl1, 2))
+    return false;
+  Serial.println("C: AA 60 A5");
+  delay(10);
+  if (!lipo.i2cReadBytes(0x60, checksumRead1, 2))
+    return false;
+  Serial.print("Received: 0x");
+  if (checksumRead1[0] < 0x10)
+    Serial.print("0");
+  Serial.print(checksumRead1[0], HEX);
+  if (checksumRead1[1] != 0x00)
+  {
+    Serial.print(" 0x");
+    if (checksumRead1[1] < 0x10)
+      Serial.print("0");
+    Serial.print(checksumRead1[1], HEX);
+  }
+  Serial.println();
+  // Validate checksum (check both bytes and flipped version)
+  if (checksumRead1[0] != expectedChecksum1 && checksumRead1[1] != expectedChecksum1)
+  {
+    Serial.println("Block 1 checksum validation FAILED!");
+    return false;
+  }
+  Serial.println("Block 1 checksum validation PASSED");
+
+  // Data Block 2
+  if (!lipo.i2cWriteBytes(0x3E, blockControl2, 2))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x40, dataBlock2, 32))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x60, checksum2, 1))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x3E, blockControl2, 2))
+    return false;
+  Serial.println("C: AA 60 69");
+  delay(10);
+  if (!lipo.i2cReadBytes(0x60, checksumRead2, 2))
+    return false;
+  Serial.print("Received: 0x");
+  if (checksumRead2[0] < 0x10)
+    Serial.print("0");
+  Serial.print(checksumRead2[0], HEX);
+  if (checksumRead2[1] != 0x00)
+  {
+    Serial.print(" 0x");
+    if (checksumRead2[1] < 0x10)
+      Serial.print("0");
+    Serial.print(checksumRead2[1], HEX);
+  }
+  Serial.println();
+  if (checksumRead2[0] != expectedChecksum2 && checksumRead2[1] != expectedChecksum2)
+  {
+    Serial.println("Block 2 checksum validation FAILED!");
+    return false;
+  }
+  Serial.println("Block 2 checksum validation PASSED");
+
+  // Data Block 3
+  if (!lipo.i2cWriteBytes(0x3E, blockControl3, 2))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x40, dataBlock3, 32))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x60, checksum3, 1))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x3E, blockControl3, 2))
+    return false;
+  Serial.println("C: AA 60 DF");
+  delay(10);
+  if (!lipo.i2cReadBytes(0x60, checksumRead3, 2))
+    return false;
+  Serial.print("Received: 0x");
+  if (checksumRead3[0] < 0x10)
+    Serial.print("0");
+  Serial.print(checksumRead3[0], HEX);
+  if (checksumRead3[1] != 0x00)
+  {
+    Serial.print(" 0x");
+    if (checksumRead3[1] < 0x10)
+      Serial.print("0");
+    Serial.print(checksumRead3[1], HEX);
+  }
+  Serial.println();
+  if (checksumRead3[0] != expectedChecksum3 && checksumRead3[1] != expectedChecksum3)
+  {
+    Serial.println("Block 3 checksum validation FAILED!");
+    return false;
+  }
+  Serial.println("Block 3 checksum validation PASSED");
+
+  // Data Block 4
+  if (!lipo.i2cWriteBytes(0x3E, blockControl4, 2))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x40, dataBlock4, 32))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x60, checksum4, 1))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x3E, blockControl4, 2))
+    return false;
+  delay(10);
+  Serial.println("C: AA 60 C5");
+  if (!lipo.i2cReadBytes(0x60, checksumRead4, 2))
+    return false;
+  Serial.print("Received: 0x");
+  if (checksumRead4[0] < 0x10)
+    Serial.print("0");
+  Serial.print(checksumRead4[0], HEX);
+  if (checksumRead4[1] != 0x00)
+  {
+    Serial.print(" 0x");
+    if (checksumRead4[1] < 0x10)
+      Serial.print("0");
+    Serial.print(checksumRead4[1], HEX);
+  }
+  Serial.println();
+  if (checksumRead4[0] != expectedChecksum4 && checksumRead4[1] != expectedChecksum4)
+  {
+    Serial.println("Block 4 checksum validation FAILED!");
+    return false;
+  }
+  Serial.println("Block 4 checksum validation PASSED");
+
+  // Data Block 5
+  if (!lipo.i2cWriteBytes(0x3E, blockControl5, 2))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x40, dataBlock5, 32))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x60, checksum5, 1))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x3E, blockControl5, 2))
+    return false;
+  delay(10);
+  Serial.println("C: AA 60 F9");
+  if (!lipo.i2cReadBytes(0x60, checksumRead5, 2))
+    return false;
+  Serial.print("Received: 0x");
+  if (checksumRead5[0] < 0x10)
+    Serial.print("0");
+  Serial.print(checksumRead5[0], HEX);
+  if (checksumRead5[1] != 0x00)
+  {
+    Serial.print(" 0x");
+    if (checksumRead5[1] < 0x10)
+      Serial.print("0");
+    Serial.print(checksumRead5[1], HEX);
+  }
+  Serial.println();
+  if (checksumRead5[0] != expectedChecksum5 && checksumRead5[1] != expectedChecksum5)
+  {
+    Serial.println("Block 5 checksum validation FAILED!");
+    return false;
+  }
+  Serial.println("Block 5 checksum validation PASSED");
+
+  // Data Block 6
+  if (!lipo.i2cWriteBytes(0x3E, blockControl6, 2))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x40, dataBlock6, 32))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x60, checksum6, 1))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x3E, blockControl6, 2))
+    return false;
+  delay(10);
+  Serial.println("C: AA 60 E4");
+  if (!lipo.i2cReadBytes(0x60, checksumRead6, 2))
+    return false;
+  Serial.print("Received: 0x");
+  if (checksumRead6[0] < 0x10)
+    Serial.print("0");
+  Serial.print(checksumRead6[0], HEX);
+  if (checksumRead6[1] != 0x00)
+  {
+    Serial.print(" 0x");
+    if (checksumRead6[1] < 0x10)
+      Serial.print("0");
+    Serial.print(checksumRead6[1], HEX);
+  }
+  Serial.println();
+  if (checksumRead6[0] != expectedChecksum6 && checksumRead6[1] != expectedChecksum6)
+  {
+    Serial.println("Block 6 checksum validation FAILED!");
+    return false;
+  }
+  Serial.println("Block 6 checksum validation PASSED");
+
+  // Data Block 7
+  if (!lipo.i2cWriteBytes(0x3E, blockControl7, 2))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x40, dataBlock7, 32))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x60, checksum7, 1))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x3E, blockControl7, 2))
+    return false;
+  delay(10);
+  Serial.println("C: AA 60 DB");
+  if (!lipo.i2cReadBytes(0x60, checksumRead7, 2))
+    return false;
+  Serial.print("Received: 0x");
+  if (checksumRead7[0] < 0x10)
+    Serial.print("0");
+  Serial.print(checksumRead7[0], HEX);
+  if (checksumRead7[1] != 0x00)
+  {
+    Serial.print(" 0x");
+    if (checksumRead7[1] < 0x10)
+      Serial.print("0");
+    Serial.print(checksumRead7[1], HEX);
+  }
+  Serial.println();
+  if (checksumRead7[0] != expectedChecksum7 && checksumRead7[1] != expectedChecksum7)
+  {
+    Serial.println("Block 7 checksum validation FAILED!");
+    return false;
+  }
+  Serial.println("Block 7 checksum validation PASSED");
+
+  // Data Block 8
+  if (!lipo.i2cWriteBytes(0x3E, blockControl8, 2))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x40, dataBlock8, 32))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x60, checksum8, 1))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x3E, blockControl8, 2))
+    return false;
+  delay(10);
+  Serial.println("C: AA 60 47");
+  if (!lipo.i2cReadBytes(0x60, checksumRead8, 2))
+    return false;
+  Serial.print("Received: 0x");
+  if (checksumRead8[0] < 0x10)
+    Serial.print("0");
+  Serial.print(checksumRead8[0], HEX);
+  if (checksumRead8[1] != 0x00)
+  {
+    Serial.print(" 0x");
+    if (checksumRead8[1] < 0x10)
+      Serial.print("0");
+    Serial.print(checksumRead8[1], HEX);
+  }
+  Serial.println();
+  if (checksumRead8[0] != expectedChecksum8 && checksumRead8[1] != expectedChecksum8)
+  {
+    Serial.println("Block 8 checksum validation FAILED!");
+    return false;
+  }
+  Serial.println("Block 8 checksum validation PASSED");
+
+  // Data Block 9
+  if (!lipo.i2cWriteBytes(0x3E, blockControl9, 2))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x40, dataBlock9, 32))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x60, checksum9, 1))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x3E, blockControl9, 2))
+    return false;
+  delay(10);
+  Serial.println("C: AA 60 04");
+  if (!lipo.i2cReadBytes(0x60, checksumRead9, 2))
+    return false;
+  Serial.print("Received: 0x");
+  if (checksumRead9[0] < 0x10)
+    Serial.print("0");
+  Serial.print(checksumRead9[0], HEX);
+  if (checksumRead9[1] != 0x00)
+  {
+    Serial.print(" 0x");
+    if (checksumRead9[1] < 0x10)
+      Serial.print("0");
+    Serial.print(checksumRead9[1], HEX);
+  }
+  Serial.println();
+  if (checksumRead9[0] != expectedChecksum9 && checksumRead9[1] != expectedChecksum9)
+  {
+    Serial.println("Block 9 checksum validation FAILED!");
+    return false;
+  }
+  Serial.println("Block 9 checksum validation PASSED");
+
+  // Data Block 10
+  if (!lipo.i2cWriteBytes(0x3E, blockControl10, 2))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x40, dataBlock10, 32))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x60, checksum10, 1))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x3E, blockControl10, 2))
+    return false;
+  delay(10);
+  Serial.println("C: AA 60 73");
+  if (!lipo.i2cReadBytes(0x60, checksumRead10, 2))
+    return false;
+  Serial.print("Received: 0x");
+  if (checksumRead10[0] < 0x10)
+    Serial.print("0");
+  Serial.print(checksumRead10[0], HEX);
+  if (checksumRead10[1] != 0x00)
+  {
+    Serial.print(" 0x");
+    if (checksumRead10[1] < 0x10)
+      Serial.print("0");
+    Serial.print(checksumRead10[1], HEX);
+  }
+  Serial.println();
+  if (checksumRead10[0] != expectedChecksum10 && checksumRead10[1] != expectedChecksum10)
+  {
+    Serial.println("Block 10 checksum validation FAILED!");
+    return false;
+  }
+  Serial.println("Block 10 checksum validation PASSED");
+
+  // Data Block 11
+  if (!lipo.i2cWriteBytes(0x3E, blockControl11, 2))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x40, dataBlock11, 32))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x60, checksum11, 1))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x3E, blockControl11, 2))
+    return false;
+  delay(10);
+  Serial.println("C: AA 60 66");
+  if (!lipo.i2cReadBytes(0x60, checksumRead11, 2))
+    return false;
+  Serial.print("Received: 0x");
+  if (checksumRead11[0] < 0x10)
+    Serial.print("0");
+  Serial.print(checksumRead11[0], HEX);
+  if (checksumRead11[1] != 0x00)
+  {
+    Serial.print(" 0x");
+    if (checksumRead11[1] < 0x10)
+      Serial.print("0");
+    Serial.print(checksumRead11[1], HEX);
+  }
+  Serial.println();
+  if (checksumRead11[0] != expectedChecksum11 && checksumRead11[1] != expectedChecksum11)
+  {
+    Serial.println("Block 11 checksum validation FAILED!");
+    return false;
+  }
+  Serial.println("Block 11 checksum validation PASSED");
+
+  // Data Block 12
+  if (!lipo.i2cWriteBytes(0x3E, blockControl12, 2))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x40, dataBlock12, 32))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x60, checksum12, 1))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x3E, blockControl12, 2))
+    return false;
+  delay(10);
+  Serial.println("C: AA 60 D5");
+  if (!lipo.i2cReadBytes(0x60, checksumRead12, 2))
+    return false;
+  Serial.print("Received: 0x");
+  if (checksumRead12[0] < 0x10)
+    Serial.print("0");
+  Serial.print(checksumRead12[0], HEX);
+  if (checksumRead12[1] != 0x00)
+  {
+    Serial.print(" 0x");
+    if (checksumRead12[1] < 0x10)
+      Serial.print("0");
+    Serial.print(checksumRead12[1], HEX);
+  }
+  Serial.println();
+  if (checksumRead12[0] != expectedChecksum12 && checksumRead12[1] != expectedChecksum12)
+  {
+    Serial.println("Block 12 checksum validation FAILED!");
+    return false;
+  }
+  Serial.println("Block 12 checksum validation PASSED");
+
+  // Data Block 13
+  if (!lipo.i2cWriteBytes(0x3E, blockControl13, 2))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x40, dataBlock13, 32))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x60, checksum13, 1))
+    return false;
+  delay(10);
+  if (!lipo.i2cWriteBytes(0x3E, blockControl13, 2))
+    return false;
+  delay(10);
+  Serial.println("C: AA 60 FF");
+  if (!lipo.i2cReadBytes(0x60, checksumRead13, 2))
+    return false;
+  Serial.print("Received: 0x");
+  if (checksumRead13[0] < 0x10)
+    Serial.print("0");
+  Serial.print(checksumRead13[0], HEX);
+  if (checksumRead13[1] != 0x00)
+  {
+    Serial.print(" 0x");
+    if (checksumRead13[1] < 0x10)
+      Serial.print("0");
+    Serial.print(checksumRead13[1], HEX);
+  }
+  Serial.println();
+  if (checksumRead13[0] != expectedChecksum13 && checksumRead13[1] != expectedChecksum13)
+  {
+    Serial.println("Block 13 checksum validation FAILED!");
+    return false;
+  }
+  Serial.println("Block 13 checksum validation PASSED");
+
+  // Exit CFGUPDATE
+  if (!lipo.i2cWriteBytes(0x00, exitCfg1, 2))
+    return false;
+  if (!lipo.i2cWriteBytes(0x00, exitCfg2, 2))
+    return false;
+  delay(2000);
+
+  Serial.println("=== ALL CHECKSUMS VALIDATED SUCCESSFULLY ===");
+  return true;
+}
+
+void listDir(fs::FS &fs, const char *dirname, uint8_t levels)
+{
+  Serial.printf("Listing directory: %s\n", dirname);
+
+  File root = fs.open(dirname);
+  if (!root)
+  {
+    Serial.println("Failed to open directory");
+    return;
+  }
+  if (!root.isDirectory())
+  {
+    Serial.println("Not a directory");
+    return;
+  }
+
+  File file = root.openNextFile();
+  while (file)
+  {
+    if (file.isDirectory())
+    {
+      Serial.print("  DIR : ");
+      Serial.println(file.name());
+      if (levels)
+      {
+        listDir(fs, file.path(), levels - 1);
+      }
+    }
+    else
+    {
+      Serial.print("  FILE: ");
+      Serial.print(file.name());
+      Serial.print("  SIZE: ");
+      Serial.println(file.size());
+    }
+    file = root.openNextFile();
+  }
+}
+
+void printBatteryStats()
+{
+  // Read battery stats from the BQ27441-G1A
+  unsigned int soc = lipo.soc();                   // Read state-of-charge (%)
+  unsigned int volts = lipo.voltage();             // Read battery voltage (mV)
+  int current = lipo.current(AVG);                 // Read average current (mA)
+  unsigned int fullCapacity = lipo.capacity(FULL); // Read full capacity (mAh)
+  unsigned int capacity = lipo.capacity(REMAIN);   // Read remaining capacity (mAh)
+
+  int power = lipo.power(); // Read average power draw (mW)
+  int health = lipo.soh();  // Read state-of-health (%)
+
+  // Assemble a string to print
+  String toPrint = String(soc) + "% | ";
+  toPrint += String(volts) + " mV | ";
+  toPrint += String(current) + " mA | ";
+  toPrint += String(capacity) + " / ";
+  toPrint += String(fullCapacity) + " mAh | ";
+
+  toPrint += String(power) + " mW | ";
+  toPrint += String(health) + "%";
+  toPrint += " |flag 0x" + String(lipo.flags(), HEX);
+  toPrint += " |stat 0x" + String(lipo.status(), HEX);
+  // Print the string
+  Serial.println(toPrint);
+}
+void setupBQ27441(void)
+{
+  // pinMode(GPOUT_PIN, INPUT_PULLUP); // Set the GPOUT pin as an input w/ pullup
+  // Use lipo.begin() to initialize the BQ27441-G1A and confirm that it's
+  // connected and communicating.
+  if (!lipo.begin()) // begin() will return true if communication is successful
+  {
+    // If communication fails, print an error message and loop forever.
+    Serial.println("Error: Unable to communicate with BQ27441.");
+    Serial.println("  Check wiring and try again.");
+    Serial.println("  (Battery must be plugged into Battery Babysitter!)");
+    while (1)
+      ;
+  }
+  Serial.println("Connected to BQ27441!");
+  printBatteryStats();
+  delay(100);
+  uint16_t chemID = lipo.readControlWord(BQ27441_CONTROL_CHEM_ID); // 1202 =4.2v
+  Serial.print("CHEM_ID: ");
+  Serial.println(chemID, HEX);
+  // Serial.println("status: " + String(lipo.status(), HEX));
+  // delay(100);
+  // Use lipo.GPOUTPolarity to read from the chip and confirm the changes
+  // if (lipo.GPOUTPolarity()) // not work ??
+  //   Serial.println("GPOUT set to active-HIGH");
+  // else
+  //   Serial.println("GPOUT set to active-LOW");
+  // delay(100);
+  // Use lipo.GPOUTFunction to confirm the functionality of GPOUT
+  // if (lipo.GPOUTFunction()) // not work ??
+  //   Serial.println("GPOUT function set to BAT_LOW");
+  // else
+  //   Serial.println("GPOUT function set to SOC_INT");
+  // delay(10);
+  // // Read the set and clear thresholds to make sure they were set correctly
+  // Serial.println("SOC1 Set Threshold: " + String(lipo.SOC1SetThreshold()));
+  // delay(10);
+  // Serial.println("SOC1 Clear Threshold: " + String(lipo.SOC1ClearThreshold()));
+  // delay(100);
+  // Serial.println("SOCF Set Threshold: " + String(lipo.SOCFSetThreshold()));
+  // delay(10);
+  // Serial.println("SOCF Clear Threshold: " + String(lipo.SOCFClearThreshold()));
+  // delay(10);
+  if (!lipo.enterConfig())
+  {
+    Serial.println("Failed to enter config mode");
+    return;
+  }
+  if (chemID != 12610) // check if BQ was programmed previously by checking if chemID was changed
+  {
+    // Serial.println("PATCH");
+    if (ensureCCGainPositive())
+    {
+      Serial.println("CC_Gain is guaranteed positive!");
+    }
+    else
+    {
+      Serial.println("Failed to make CC_Gain positive");
+    }
+    if (!lipo.executeControlWord(0x32))
+    {
+      Serial.println("chem_NOT_changed");
+    }
+    lipo.exitConfig();
+    delay(100);
+    if (executeGoldenFile())
+    {
+      // Configuration successful
+      Serial.println("Golden file executed successfully!");
+    }
+    else
+    {
+      // Configuration failed
+      Serial.println("Golden file execution failed!");
+    }
+    delay(1000);
+    printBatteryStats();
+    uint16_t chemID_set = lipo.readControlWord(BQ27441_CONTROL_CHEM_ID); // 1202 =4.2v
+    Serial.print("CHEM_ID: ");
+    Serial.println(chemID_set, HEX);
+  }
+  Serial.println("-init_END");
+}
+void setup()
+{
+  Serial.begin(115200);
+  // byte exp2addr = 0x21;
+  // byte error;
+  delay(2000); // Longer delay for USB CDC to initialize on ESP32-C5
+  pinMode(EXP_EN, OUTPUT);
+  digitalWrite(EXP_EN, HIGH);
+  // Wait for Serial to be ready (important for USB CDC)
+  while (!Serial && millis() < 5000)
+  {
+    delay(10);
+  }
+
+  Serial.println("\n\n=== ESP32-C5 Starting ===");
+  Serial.println("Hello world!");
+  Serial.println();
+
+  // PSRAM check
+  // if (psramFound())
+  // {
+  //   Serial.println("[PSRAM] Connected successfully");
+  //   Serial.printf("[PSRAM] Total size : %u bytes (%.1f KB)\n", ESP.getPsramSize(), ESP.getPsramSize() / 1024.0f);
+  //   Serial.printf("[PSRAM] Free        : %u bytes (%.1f KB)\n", ESP.getFreePsram(), ESP.getFreePsram() / 1024.0f);
+  // }
+  // else
+  // {
+  //   Serial.println("[PSRAM] ERROR: Not found or not initialized!");
+  // }
+  // Serial.println();
+
+  // Serial.println("TCA9555 I/O Expander Test");
+  // Serial.println("Initializing I2C...");
+
+  // // Initialize I2C FIRST before using it
+  // Serial.print("Calling Wire.begin(");
+  // Serial.print(I2C_SDA);
+  // Serial.print(", ");
+  // Serial.print(I2C_SCL);
+  // Serial.println(")...");
+
+  // Try with explicit frequency parameter
+  if (!Wire.begin(I2C_SDA, I2C_SCL, 100000))
+  {
+    Serial.println("ERROR: Wire.begin() with frequency FAILED!");
+    Serial.println("Trying without frequency parameter...");
+
+    if (!Wire.begin(I2C_SDA, I2C_SCL))
+    {
+      Serial.println("ERROR: Wire.begin() FAILED!");
+      Serial.println("This is ESP_ERR_INVALID_STATE - pins may not support I2C");
+      while (1)
+      {
+        delay(1000);
+      }
+    }
+  }
+  if (!lipo.begin()) // begin() will return true if communication is successful
+  {
+    // If communication fails, print an error message and loop forever.
+    Serial.println("Error: Unable to communicate with BQ27441.");
+    // Serial.println("  Check wiring and try again.");
+    // Serial.println("  (Battery must be plugged into Battery Babysitter!)");
+    // while (1)
+    //   ;
+    delay(100);
+    if (!lipo.begin()) // begin() will return true if communication is successful
+    {
+      // If communication fails, print an error message and loop forever.
+      Serial.println("Error: Unable to communicate with BQ27441.");
+      // Serial.println("  Check wiring and try again.");
+      // Serial.println("  (Battery must be plugged into Battery Babysitter!)");
+      // while (1)
+      //   ;
+    }
+  }
+  // delay(1000);
+  // scanI2C();
+  // Serial.println("1");
+
+  // Serial.println("I2C initialized successfully!");
+  // Serial.print("SDA: GPIO");
+  // Serial.println(I2C_SDA);
+  // Serial.print("SCL: GPIO");
+  // Serial.println(I2C_SCL);
+
+  // Wire.beginTransmission(exp2addr);
+  // error = Wire.endTransmission();
+  // Serial.print("Error: ");
+  // Serial.println(error);
+  pinMode(PMIC_PG, INPUT);
+  pinMode(EPD_BUSY, INPUT);
+
+  // pinMode(TOOGLE_SEL1, OUTPUT);
+  // pinMode(TOOGLE_SEL2, OUTPUT);
+  expander1.write1(EXP1_PMIC_PS, LOW);
+  expander1.pinMode1(EXP1_PMIC_PS, OUTPUT);
+
+  // expander2.write1(EXP2_BAT_ID, HIGH);
+  // expander2.pinMode1(EXP2_BAT_ID, OUTPUT);
+  expander2.pinMode1(EXP2_BAT_ID, INPUT);
+  delay(1000);
+  int pinState = expander2.read1(EXP2_BAT_ID);
+
+  if (pinState == HIGH)
+  {
+    // Pin is HIGH (connected to VCC)
+    Serial.println("HIGH");
+  }
+  else
+  {
+    // Pin is LOW (connected to GND)
+    Serial.println("LOW");
+  }
+  expander2.write1(EXP2_BAT_ID, HIGH);
+  expander2.pinMode1(EXP2_BAT_ID, OUTPUT);
+  delay(2);
+  expander2.pinMode1(EXP2_BAT_ID, INPUT);
+  pinState = expander2.read1(EXP2_BAT_ID);
+  unsigned long startTime = micros();
+  // if (pinState == HIGH)
+  // {
+  //   // Pin is HIGH (connected to VCC)
+  //   Serial.println("HIGH");
+  // }
+  // else
+  // {
+  //   // Pin is LOW (connected to GND)
+  //   Serial.println("LOW");
+  // }
+  while (expander2.read1(EXP2_BAT_ID) == HIGH)
+  {
+    // Optional: Short delay to prevent hammering the I2C bus too aggressively
+    // delay(1);
+  }
+  unsigned long endTime = micros();
+  unsigned long duration = endTime - startTime;
+  // Print results
+  Serial.print("Pin 1 went LOW! Duration: ");
+  Serial.print(duration);
+  Serial.println(" us");
+  // Serial.println("Pin 1 is now LOW! Proceeding...");
+  // digitalWrite(TOOGLE_SEL1, LOW);
+  // digitalWrite(TOOGLE_SEL2, LOW);
+  // expanders_voltage_gpio_init();
+  // expander1.write1(PMIC_EN, LOW);
+  // expander1.pinMode1(PMIC_EN, OUTPUT);
+  // delay(1000);
+  // Serial.println("Setting voltage enable pins HIGH...");
+  // expander1.write1(EXP1_EN_V5A, HIGH);
+  // expander2.write1(EXP2_EN_V5D, HIGH);
+  // expander2.write1(EXP2_EN_1_35V, HIGH);
+
+  // expander1.pinMode1(EXP1_EN_V5A, OUTPUT);
+  // expander2.pinMode1(EXP2_EN_V5D, OUTPUT);
+  // expander2.pinMode1(EXP2_EN_1_35V, OUTPUT);
+  // setGpioLevel(EXP1_VNCP_EN, GPIO_HIGH);
+  // Serial.println("5v");
+  // Serial.println("1");
+  // delay(1000);
+  // Serial.println("2");
+  // delay(1000);
+  // Serial.println("3");
+  // delay(1000);
+  // Serial.println("4");
+  // delay(1000);
+  // Serial.println("5");
+  // delay(1000);
+  // Serial.println("6");
+  // delay(1000);
+  // Serial.println("EN-SWITCH");
+  // setGpioLevel_EXPANDER_2(8, GPIO_HIGH);
+  // delay(1000);
+  // expander2.write1(EXP2_EN_DC12, HIGH);
+  // expander2.pinMode1(EXP2_EN_DC12, OUTPUT);
+  // Serial.println("12v");
+  // delay(1000);
+  // expander1.write1(EXP1_EN_V5A, HIGH);
+  // expander2.write1(EXP2_EN_V5D, HIGH);
+  // // expander2.write1(EXP2_EN_1_35V, HIGH);
+
+  // expander1.pinMode1(EXP1_EN_V5A, OUTPUT);
+  // expander2.pinMode1(EXP2_EN_V5D, OUTPUT);
+  // delay(1000);
+
+  pinMode(5, INPUT); // GPOUT_PIN of BQ27427
+  attachInterrupt(digitalPinToInterrupt(5), wakePIN, FALLING);
+  delay(500);
+  // Serial.begin(115200);
+  // while (!Serial)
+  ; // Wait for the serial port to open
+  // Wire1.begin();
+  // Wire1.setClock(100000);
+  // Serial.println("inited ?");
+  // delay(500);
+  // Serial.println("inited ?");
+  // setupBQ27441();
+  // delay(100);
+
+  // setGpioLevel_EXPANDER_2(EXP2_EN_DC19, GPIO_HIGH);
+  // printf("EN DC19\n");
+  // delayms(100);
+  // setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH); // -19v
+  // printf("-19\n");
+  // delayms(50);
+  // setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH); // +19v
+  // printf("+19\n");
+  // delayms(50);
+  // delay(1000);
+  // expander2.write1(EXP2_EN_NEGATIVE_3_5V, HIGH);
+  // expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V, OUTPUT);
+  // Serial.println("-3.5v");
+  // delay(1000);
+  // setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH); // -19v
+  // printf("-19\n");
+  // setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH); // +19v
+  // printf("+19\n");
+  // setGpioLevel_EXPANDER_2(EXP2_EN_NEGATIVE_3_5V, GPIO_LOW); // -3.5v our DC-DC EN
+  // setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH); // +19v
+  // printf("+19\n");
+  // // delayms(10000); // Wait for VDDP to be ready.
+  // delay(100);
+  // setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH); // -19v
+  // printf("-19\n");
+  // // delayms(10000); // Wait for VDDN to be ready
+  // delay(100);
+  // expander2.write1(EXP2_EN_DC19, HIGH); // -3.5v
+  // expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
+  // printf("-3.5\n");
+  // delayms(10000); // Wait for VDDP to be ready.
+  // delay(100);
+
+  // setGpioLevel(EXP1_VNCP_EN, GPIO_HIGH);
+  //   printf("-3.5\n");
+  // expander2.write1(EXP2_EN_DC19, HIGH);
+  // expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
+  // delay(10000);
+  // powerSwitchEnable();
+  // delay(10000);
+  // digitalWrite(TOOGLE_SEL1, HIGH); // Enable IST
+  // Serial.println("IST enabled");
+  // delay(10);//was 100
+  // enablePmic();
+  // if (setPmic() == DONE)
+  //{
+  // printf("PMIC registers configured successfully\r\n");
+  // delayms(100);
+  // powerSwitchEnable(); // for test can be off
+  // setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH); // -19v
+  // printf("-19\n");
+  // delay(50);
+  // setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH); // +19v
+  // printf("+19\n");
+  // delay(50);
+  // expander2.write1(EXP2_EN_DC19, HIGH); // -3.5v
+  // expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
+  // printf("-3.5\n");
+  // delay(50);
+
+  // set_ESP32_GpioLevel(LOW);
+  // printf("Setting PMIC_EN to LOW...\r\n");
+
+  // Wait for PMIC_PG with timeout (max 5 seconds)
+  // int timeout = 5000; // 5 seconds timeout
+  // int elapsed = 0;
+  // printf("Waiting for PMIC_PG to go HIGH...\n");
+  /*while (!(getGpioLevel(PMIC_PG)))
+  {
+    delayms(10);
+    elapsed += 10;
+    if (elapsed >= timeout)
+    {
+      printf("ERROR: PMIC_PG timeout! PMIC did not reach power good state.\n");
+      printf("PMIC_PG pin state: %d (should be 1)\n", getGpioLevel(PMIC_PG));
+      return; // Exit instead of hanging forever
+    }
+    if (elapsed % 500 == 0)
+    {
+      printf("Still waiting for PMIC_PG... (%d ms)\n", elapsed);
+    }
+  }
+  printf("PMIC_PG is HIGH - Power good!\n");
+#if SHOW_LOG
+  printf("enablePmic() done. \r\n");
+#endif
+//}*/
+  // delay(2000);
+  // digitalWrite(TOOGLE_SEL1, HIGH); // Enable IST
+  // Serial.println("IST enabled");
+
+  // scanI2C();
+
+  // // Read PMIC registers 0x1D and 0x1E
+  // printf("\n========== Reading PMIC Registers ==========\n");
+
+  // unsigned char reg_data_0x1D = 0;
+  // unsigned char reg_data_0x1E = 0;
+
+  // // Read 1 byte from register 0x1D
+  // printf("Reading from PMIC register 0x1D...\n");
+  // if (readPmicRegister(0x1D, &reg_data_0x1D, 1) == DONE)
+  // {
+  //   printf("Register 0x1D: 0x%02X (%d)\n", reg_data_0x1D, reg_data_0x1D);
+  // }
+
+  // printf("\n");
+
+  // // Read 1 byte from register 0x1E
+  // printf("Reading from PMIC register 0x1E...\n");
+  // if (readPmicRegister(0x1E, &reg_data_0x1E, 1) == DONE)
+  // {
+  //   printf("Register 0x1E: 0x%02X (%d)\n", reg_data_0x1E, reg_data_0x1E);
+  // }
+
+  // printf("===========================================\n\n");
+  // digitalWrite(TOOGLE_SEL1, HIGH); // Enable IST
+  // Serial.println("IST enabled");
+  // delay(4000);
+  // delay(1000);
+  // powerSwitchEnable();
+  //   // Read PMIC registers 0x1D and 0x1E
+  //   printf("\n========== Reading PMIC Registers ==========\n");
+
+  //  reg_data_0x1D = 0;
+  //  reg_data_0x1E = 0;
+
+  //   // Read 1 byte from register 0x1D
+  //   printf("Reading from PMIC register 0x1D...\n");
+  //   if (readPmicRegister(0x1D, &reg_data_0x1D, 1) == DONE)
+  //   {
+  //     printf("Register 0x1D: 0x%02X (%d)\n", reg_data_0x1D, reg_data_0x1D);
+  //   }
+
+  //   printf("\n");
+
+  //   // Read 1 byte from register 0x1E
+  //   printf("Reading from PMIC register 0x1E...\n");
+  //   if (readPmicRegister(0x1E, &reg_data_0x1E, 1) == DONE)
+  //   {
+  //     printf("Register 0x1E: 0x%02X (%d)\n", reg_data_0x1E, reg_data_0x1E);
+  //   }
+
+  //   printf("===========================================\n\n");
+  //   delay(10000);
+
+  // Initialize EPD GPIO pins
+  // epd_gpio_init();
+
+  // // Initialize SPI CS pins on expander
+  // gpio_cs_pins_init();
+
+  // // Initialize SPI
+  // spiInit();
+
+  // epdHardwareReset();
+
+  // // Initialize EPD driver ICs
+  // printf("\n========== Initializing EPD ==========\n");
+  // // epdInit();
+
+  // // Allocate one PSRAM buffer per color and pre-fill
+  // const uint8_t colorValues[] = {EPD_BLACK, EPD_WHITE, EPD_YELLOW, EPD_RED, EPD_BLUE, EPD_GREEN};
+  // const char *colorNames[] = {"BLACK", "WHITE", "YELLOW", "RED", "BLUE", "GREEN"};
+  // const int numColors = 6;
+  // unsigned char *colorBuffers[numColors];
+
+  // for (int i = 0; i < numColors; i++)
+  // {
+  //   colorBuffers[i] = (unsigned char *)ps_malloc(EPD_IMAGE_DATA_BUFFER);
+  //   if (colorBuffers[i] == nullptr)
+  //   {
+  //     printf("[EPD] FATAL: ps_malloc failed for %s buffer!\n", colorNames[i]);
+  //     while (1)
+  //       ;
+  //   }
+  //   memset(colorBuffers[i], colorValues[i], EPD_IMAGE_DATA_BUFFER);
+  //   printf("[EPD] %s buffer ready in PSRAM (%u bytes)\n", colorNames[i], EPD_IMAGE_DATA_BUFFER);
+  // }
+
+  // // Check driver IC status
+  // if (epdCheckDriverICStatus() == DONE)
+  // {
+  //   epdInit();
+  // enablePmic();
+  // setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH); // -19v
+  // printf("-19\n");
+  // delay(500);
+  // setGpioLevel_EXPANDER_2(EXP2_EN_DC19, GPIO_HIGH); // our dc-dc +-19v OR -3.5v from black fix temporary
+  // printf("ON DC 19\n");
+  // powerSwitchEnable();
+  // delay(1000);
+  // setGpioLevel_EXPANDER_2(EXP2_EN_NEGATIVE_3_5V, GPIO_HIGH); // -3.5v our DC-DC EN
+  // delay(1000);
+  // setGpioLevel(EXP1_VDDN_EN, GPIO_HIGH); // -19v
+  // printf("-19\n");
+  // delayms(50);
+  // setGpioLevel(EXP1_VDDP_EN, GPIO_HIGH); // +19v
+  // printf("+19\n");
+  // delayms(50);
+
+  // expander2.write1(EXP2_EN_NEGATIVE_3_5V, HIGH);
+  // expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V, OUTPUT);
+  // setGpioLevel(EXP1_VNCP_EN, GPIO_HIGH);
+  // Serial.println("-3.5v ON MOSFET");
+  // delay(10000);
+  // Serial.println("-3.5v ON MOSFET");
+  // setGpioLevel(EXP1_VNCP_EN, GPIO_HIGH);
+  //   if (epdSetPower() == DONE)
+  //   {
+  //       epdWriteImage(0, BfkLx0_sections[0], EPD_IMAGE_DATA_BUFFER);
+  //       epdWriteImage(1, BfkLx0_sections[1], EPD_IMAGE_DATA_BUFFER);
+  //       epdWriteImage(2, BfkLx0_sections[2], EPD_IMAGE_DATA_BUFFER);
+  //       epdWriteImage(3, BfkLx0_sections[3], EPD_IMAGE_DATA_BUFFER);
+  //       epdWriteImage(4, BfkLx0_sections[4], EPD_IMAGE_DATA_BUFFER);
+  //       epdWriteImage(5, BfkLx0_sections[5], EPD_IMAGE_DATA_BUFFER);
+  //       epdWriteImage(6, BfkLx0_sections[6], EPD_IMAGE_DATA_BUFFER);
+  //       epdWriteImage(7, BfkLx0_sections[7], EPD_IMAGE_DATA_BUFFER);
+  // epdDisplay();
+  //       printf("Display complete.\n");
+  //       delay(2000);
+  //   }
+  // }
+  // else
+  // {
+  //   printf("WARNING: Some driver ICs did not respond\n");
+  // }
+  // delayms(2000);
+  // enablePmic();
+  // powerSwitchEnable();
+  // delayms(2000);
+  // disablePmic();
+  // delayms(5000);
+  // expander2.write1(EXP2_EN_NEGATIVE_3_5V, LOW);
+  // expander2.pinMode1(EXP2_EN_NEGATIVE_3_5V, OUTPUT);
+  // delayms(5000);
+  // setGpioLevel_EXPANDER_2(EXP2_EN_NEGATIVE_3_5V, GPIO_LOW); // -3.5v our DC-DC EN
+  //                                                           // disablePmic();
+  //                                                           // printf("disablePmic.\n");
+  //                                                           // delayms(10000);
+  //                                                           // disablePmic();
+  //                                                           // powerSwitchDisable();
+  //                                                           // delay(5000);
+  //                                                           // setGpioLevel_EXPANDER_2(EXP2_EN_NEGATIVE_3_5V, GPIO_LOW); // -3.5v our DC-DC EN
+  //                                                           // expander2.write1(EXP2_EN_DC19, LOW); // -3.5v
+  //                                                           // expander2.pinMode1(EXP2_EN_DC19, OUTPUT);
+  //                                                           // printf("-3.5\n");
+  // delay(5000);
+  // setGpioLevel_EXPANDER_2(EXP2_EN_DC19, GPIO_LOW); // our dc-dc +-19v OR -3.5v from black fix temporary
+  // delay(5000);
+  // setGpioLevel(EXP1_VDDP_EN, GPIO_LOW); // +19v
+  // printf("+19\n");
+  // delay(50);
+  // setGpioLevel(EXP1_VDDN_EN, GPIO_LOW); // -19v
+  // printf("-19\n");
+  // delay(50);
+
+  // printf("======================================\n\n");
+
+  // begin() sets all pins as inputs by default
+  /*
+  if (expander1.begin()) {
+    Serial.println("Expander 1 (0x20) initialized successfully");
+  } else {
+    Serial.println("Failed to initialize Expander 1");
+  }
+
+  // Initialize second expander
+  if (expander2.begin()) {
+    Serial.println("Expander 2 (0x21) initialized successfully");
+  } else {
+    Serial.println("Failed to initialize Expander 2");
+  }
+
+  // Setup interrupt pins
+  pinMode(GPIO_INT1, INPUT_PULLUP);
+  pinMode(GPIO_INT2, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(GPIO_INT1), expander1_ISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(GPIO_INT2), expander2_ISR, FALLING);
+  Serial.println("Interrupts configured on pins 28 and 27");
+
+  // Configure IST9201_EN pin (pin 15 on expander1) as OUTPUT
+  expander1.pinMode1(IST9201_EN, OUTPUT);
+  Serial.println("IST9201_EN (expander1 pin 15) configured as OUTPUT");
+
+  // Enable IST9201 by setting pin HIGH
+  expander1.write1(IST9201_EN, HIGH);
+  Serial.println("IST9201_EN set to HIGH (enabled)");
+
+  // Example: Set pins 0-7 of expander1 as outputs, 8-14 as inputs
+  // Note: pin 15 is already configured above for IST9201_EN
+  expander1.pinMode8(0, 0x00);  // Port 0 (pins 0-7): all outputs (0 = OUTPUT)
+  // Port 1 (pins 8-15): pin 15 is output for IST9201_EN, pins 8-14 can be inputs
+  // 0x7F = 0b01111111 (bits 0-6 are INPUT, bit 7 is OUTPUT)
+  expander1.pinMode8(1, 0x7F);
+
+  // Example: Set pins 0-3 of expander2 as outputs, 4-15 as inputs
+  expander2.pinMode8(0, 0xF0);  // Lower 4 bits output, upper 4 input
+  expander2.pinMode8(1, 0xFF);  // Port 1: all inputs
+
+  Serial.println("Setup complete");
+  */
+}
+
+void loop()
+{
+  // printBatteryStats();
+  // If the GPOUT interrupt is active (low)
+  // if (wakePin)
+  // {
+  //   wakePin = false;
+  //   Serial.println("Wake");
+  //   // Check which of the flags triggered the interrupt
+  //   if (lipo.socfFlag())
+  //     Serial.println("SOC_F");
+  //   else if (lipo.socFlag())
+  //     Serial.println("SOC_1");
+
+  //   // printBatteryStats();
+  // }
+  // printBatteryStats();
+  // delay(1000);
+}

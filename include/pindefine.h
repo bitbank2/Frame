@@ -20,6 +20,8 @@
 #define SPI_Data2	7   // Reserved for QSPI
 #define SPI_Data3	6   // Reserved for QSPI
 
+#define SPI_1DSX	23   // Reserved for 1DSX
+#define EXP_EN	    24 // VIN exp 3.3V black brd(fix) (OLD SPI_2DSX)
 // Legacy CS pin definitions (not used - CS is via TCA9555 expanders)
 #define SPI_CS0		1
 #define SPI_CS1		2
@@ -33,12 +35,19 @@
 //==============   ESP32-C5 GPIO Setting   ==============//
 // Direct GPIO pins on ESP32-C5 MCU
 #define EPD_BUSY	27//was4    // EPD busy signal input
-#define EPD_RST		5    // EPD reset output
+// #define EPD_RST		5    // EPD reset output
 #define PMIC_PG		26   // PMIC power good input
-#define PMIC_PS		25   // PMIC power save mode control
+// #define PMIC_PS		25   // PMIC power save mode control
 
-#define TOOGLE_SEL1 23 //PMIC ENABLE on FIXED BOARD
-#define TOOGLE_SEL2 24
+// #define TOOGLE_SEL1 23 //PMIC ENABLE on FIXED BOARD
+// #define TOOGLE_SEL2 24
+#define PMIC_EN	25
+
+#define BTN3	4
+#define BTN4	1
+#define BTN5	0
+
+#define GAUGE_INT	5
 //===============================================
 
 
@@ -52,25 +61,32 @@
 #define EXP1_SPI2_CS2	5
 #define EXP1_SPI2_CS1	6
 #define EXP1_SPI2_CS0	7
-#define EXP1_PMIC_EN	13
 #define EXP1_CS_SD_CARD	8
 #define EXP1_EN_V5A 9
-#define EXP1_VDDN_EN 10
-#define EXP1_VDDP_EN 11
-#define EXP1_VNCP_EN 12
+#define EXP1_VDDN_EN 10 //MSFT out
+#define EXP1_VDDP_EN 11 //MSFT out
+#define EXP1_VNCP_EN 12 //MSFT out
+#define EXP1_PMIC_PS 13
+#define EXP1_CHARGER_status 14
+#define EXP1_CHARGER_pg 15
+
 //===============================================
 
 //==============   Expander 2 GPIO Setting   ==============//
 //Please modify the pin number
-#define EXP2_BTN3	0
-#define EXP2_BTN4	1
-#define EXP2_BTN5	2
-#define EXP2_EN_V5D	3
+// #define EXP2_BTN3	
+// #define EXP2_BTN4	
+// #define EXP2_BTN5	
+#define EXP2_EN_1_35V	0//not used on FIXED BOARD (was#6)
+#define EXP2_BAT_ID     1
+#define EXP2_EN_V5D     3
 #define EXP2_EN_DC19	4
 #define EXP2_EN_DC12	5
-#define EXP2_EN_1_35V	6
-#define EXP2_EN_NEGATIVE_3_5V	7
-#define EXP2_GAUGE_INT	13
+#define EXP2_EN_VIN_DC12	6
+#define EXP2_EN_NEGATIVE_3_5V	8 //DC EN(was7)
+#define EXP2_EN_VIN_SCREEN_3V3	9
+// #define EXP2_GAUGE_INT	13
+#define EXP2_EPD_RST 15
 //===============================================
 
 

@@ -285,7 +285,9 @@ void set_ESP32_GpioLevel(uint8_t pinState)
 {
     // expander1.write1(pinNumber, voltageLevel);
     // expander1.pinMode1(pinNumber, OUTPUT);
-    digitalWrite(TOOGLE_SEL1, pinState); // Enable IST 9201
+    // digitalWrite(TOOGLE_SEL1, pinState); // Enable IST 9201
+    digitalWrite(PMIC_EN, pinState); // Enable IST 9201
+
 }
 
 // temporary

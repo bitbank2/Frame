@@ -1,0 +1,79 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include "time.h"
+// #include <Arduino.h>
+#include <Wire.h>
+#include <SPI.h>
+#include "TCA9555.h"
+#include "pindefine.h"
+#include "globals.h"
+#include "pmic.h"
+#include "status.h"
+#include "BfkLx0.h"
+#include "esp_sleep.h"
+
+extern "C"
+{
+#include "epd.h"
+#include "comm.h"
+}
+// Network Credentials
+const char* ssid     = "YOUR_SSID";// YOUR_SSID //YOUR_SSID
+const char* password = "REDACTED_PASSWORD";
+
+const char* ntpServer = "pool.ntp.org";
+const char* timezone  = "EET-2EEST,M3.5.0/3,M10.5.0/4";
+
+// Function to translate RSSI values into human-readable quality
+String getSignalQuality(long rssi) {
+  if (rssi > -50) return "Excellent";
+  else if (rssi > -60) return "Very Good";
+  else if (rssi > -70) return "Good";
+  else if (rssi > -80) return "Low";
+  else return "Very Weak";
+}
+
+void printWifiStats() {
+  if (WiFi.status() == WL_CONNECTED) {
+    long rssi = WiFi.RSSI();
+    Serial.print("SSID: ");
+    Serial.print(WiFi.SSID());
+    Serial.print(" | Signal Strength: ");
+    Serial.print(rssi);
+    Serial.print(" dBm (");
+    Serial.print(getSignalQuality(rssi));
+    Serial.println(")");
+  } else {
+    Serial.println("WiFi Disconnected");
+  }
+}
+
+void printLocalTime() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("Failed to obtain time");
+    return;
+  }
+  Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+}
+
+void setup() {
+  Serial.begin(115200);
+  
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  
+  Serial.println("\nWiFi Connected!");
+  configTzTime(timezone, ntpServer);
+}
+
+void loop() {
+  Serial.println("----------------------------");
+  printLocalTime();
+  printWifiStats();
+  
+  delay(5000); // Check every 5 seconds
+}

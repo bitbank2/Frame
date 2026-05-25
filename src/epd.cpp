@@ -71,8 +71,9 @@ unsigned char *epdImageDataBuffer = nullptr;
 static void epdResetPin(unsigned int pinStatus)
 {
     // digitalWrite(EPD_RST, pinStatus);
-    expander2.write1(14, pinStatus);
-    expander2.pinMode1(14, OUTPUT);
+    expander2.write1(EXP2_EPD_RST, pinStatus);
+    delayms(10);
+    expander2.pinMode1(EXP2_EPD_RST, OUTPUT);
 }
 
 /**
@@ -122,9 +123,11 @@ void epdSetCs(unsigned char csNumber, unsigned int setLevel)
  */
 void epdCheckBusyHigh(void)
 {
+        expander2.write1(12, HIGH);
+  expander2.pinMode1(12, OUTPUT);
     int timeout = 60000; // 60 second timeout (31.5" ACeP needs up to 30s refresh)
     int elapsed = 0;
-    while (!(digitalRead(EPD_BUSY)))
+    while (!(!digitalRead(EPD_BUSY))) // added invertion because Hardware FIX mosfet
     {
         delayms(1);
         elapsed++;
@@ -134,6 +137,8 @@ void epdCheckBusyHigh(void)
             return;
         }
     }
+    Serial.println("Busy_pin ");
+    Serial.println(elapsed);
 }
 
 /**
@@ -143,7 +148,7 @@ void epdCheckBusyLow(void)
 {
     int timeout = 60000; // 60 second timeout
     int elapsed = 0;
-    while (digitalRead(EPD_BUSY))
+    while (!digitalRead(EPD_BUSY))// added invertion because Hardware FIX
     {
         delayms(1);
         elapsed++;
