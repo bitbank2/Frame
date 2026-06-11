@@ -2,3 +2,6 @@
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_CAPS_ALLOC=y
+
+# Increase loop task stack — imgFetchAndConvert + WiFi + PNGdec needs >8 KB
+CONFIG_ARDUINO_LOOP_STACK_SIZE=65536
