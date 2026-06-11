@@ -6,9 +6,11 @@
 #include "globals.h"
 #include "pmic.h"
 #include "status.h"
-#include "img_fetch.h"  // replaces BfkLx0.h — provides BfkLx0_sections[] via PSRAM download
+#include "img_fetch.h"   // BfkLx0_sections[] via PSRAM download (PNG + BMP)
+#include "api_client.h"  // TRMNL /api/setup + /api/display
 #include "esp_sleep.h"
 #include <WiFi.h>
+#include <Preferences.h>
 
 extern "C"
 {
@@ -429,45 +431,108 @@ void setup()
   }
 
     // === WIFI START BLOCK ===
-  // Start WiFi connection in the background so it connects while the EPD powers up.
+  WiFi.persistent(false);   // do not save credentials to NVS — avoids stale state
+  WiFi.disconnect(true);    // clear any state from a previous WiFi.mode() call
+  delay(100);
   WiFi.begin(IMG_FETCH_WIFI_SSID, IMG_FETCH_WIFI_PASS);
-  Serial.printf("[WIFI] Connecting to %s (running in background)...\n", IMG_FETCH_WIFI_SSID);
+  Serial.printf("[WIFI] Connecting to %s...\n", IMG_FETCH_WIFI_SSID);
   // === END WIFI START BLOCK ===
 
   // === IMAGE DOWNLOAD BLOCK ===
-  // Free the solid-color test buffers above (never used by the display path) so
-  // the ~2.3 MB of 8-section image buffers can fit in the 4 MB PSRAM.
+  // Free solid-color test buffers so the 2.3 MB section buffers fit in PSRAM.
   for (int i = 0; i < numColors; i++) { free(colorBuffers[i]); colorBuffers[i] = nullptr; }
-  // Download PNG from IMG_FETCH_API_URL, scale to 5120×720, convert to EPD 4bpp nibble
-  // format, and store in PSRAM → exposes result via BfkLx0_sections[0..7].
-  imgFetchAndConvert(IMG_FETCH_API_URL);
-  // === END IMAGE DOWNLOAD BLOCK ===
 
-  delayms(10);
-  // Check driver IC status
-  if (epdCheckDriverICStatus() == DONE)
+  // ── Wait for WiFi (always — needed for both setup and display calls) ────────
+  Serial.printf("[WIFI] Waiting for connection to %s...\n", IMG_FETCH_WIFI_SSID);
   {
-    epdInit();
+    uint32_t t0 = millis();
+    uint32_t tPrint = t0;
+    while (WiFi.status() != WL_CONNECTED) {
+      if (millis() - t0 > 30000UL) { Serial.println("[WIFI] timeout"); goto skip_display; }
+      if (millis() - tPrint >= 2000UL) {
+        tPrint = millis();
+        Serial.printf("[WIFI] status=%d  elapsed=%lus\n",
+                      (int)WiFi.status(), (millis() - t0) / 1000UL);
+      }
+      delay(250);
+    }
+  }
+  Serial.printf("\n[WIFI] Connected — IP: %s  RSSI: %d dBm\n",
+                WiFi.localIP().toString().c_str(), WiFi.RSSI());
 
-    if (epdSetPower() == DONE)
+  // ── Step 1: get/restore API key from NVS ───────────────────────────────────
+  {
+    Preferences prefs;
+    prefs.begin("trmnl", false);
+    String apiKey = prefs.getString("api_key", "");
+
+    if (apiKey.isEmpty()) {
+      TrmnlSetupResult setup = trmnlSetup();
+      if (!setup.ok) {
+        Serial.printf("[TRMNL] setup failed (status=%d) — device not registered?\n", setup.status);
+        prefs.end();
+        goto skip_display;
+      }
+      Serial.printf("[TRMNL] Registered  api_key=%s  friendly_id=%s\n",
+                    setup.api_key.c_str(), setup.friendly_id.c_str());
+      prefs.putString("api_key",     setup.api_key);
+      prefs.putString("friendly_id", setup.friendly_id);
+      apiKey = setup.api_key;
+    } else {
+      Serial.printf("[TRMNL] API key: %s\n", apiKey.c_str());
+    }
+    prefs.end();
+
+    // ── Step 2: get image URL from /api/display ─────────────────────────────
+    TrmnlDisplayResult disp = trmnlDisplay(apiKey);
+    if (!disp.ok) {
+      // status=202 means no plugin assigned yet — go to usetrmnl.com and add
+      // this device using friendly_id printed above, then assign a plugin.
+      Serial.printf("[TRMNL] display: status=%d, no image — skipping EPD update\n", disp.status);
+      goto skip_display;
+    }
+    Serial.printf("[TRMNL] image_url=%s  refresh=%us\n",
+                  disp.image_url.c_str(), disp.refresh_rate);
+
+    // ── Step 3: download image (PNG or BMP) and decode into EPD buffers ─────
+    imgFetchUrl(disp.image_url.c_str());
+  }
+
+  // Only drive the EPD if section buffers were actually populated.
+  // BfkLx0_sections[0] is null when imgFetchUrl was never called or failed.
+  if (BfkLx0_sections[0] != nullptr)
+  {
+    delayms(10);
+    if (epdCheckDriverICStatus() == DONE)
     {
-      epdWriteImage(0, BfkLx0_sections[0], EPD_IMAGE_DATA_BUFFER);
-      epdWriteImage(1, BfkLx0_sections[1], EPD_IMAGE_DATA_BUFFER);
-      epdWriteImage(2, BfkLx0_sections[2], EPD_IMAGE_DATA_BUFFER);
-      epdWriteImage(3, BfkLx0_sections[3], EPD_IMAGE_DATA_BUFFER);
-      epdWriteImage(4, BfkLx0_sections[4], EPD_IMAGE_DATA_BUFFER);
-      epdWriteImage(5, BfkLx0_sections[5], EPD_IMAGE_DATA_BUFFER);
-      epdWriteImage(6, BfkLx0_sections[6], EPD_IMAGE_DATA_BUFFER);
-      epdWriteImage(7, BfkLx0_sections[7], EPD_IMAGE_DATA_BUFFER);
-      epdDisplay();
-      printf("Display complete.\n");
-      delay(2000);
+      epdInit();
+      if (epdSetPower() == DONE)
+      {
+        epdWriteImage(0, BfkLx0_sections[0], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(1, BfkLx0_sections[1], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(2, BfkLx0_sections[2], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(3, BfkLx0_sections[3], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(4, BfkLx0_sections[4], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(5, BfkLx0_sections[5], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(6, BfkLx0_sections[6], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(7, BfkLx0_sections[7], EPD_IMAGE_DATA_BUFFER);
+        epdDisplay();
+        printf("Display complete.\n");
+        delay(2000);
+      }
+    }
+    else
+    {
+      printf("WARNING: Some driver ICs did not respond\n");
     }
   }
   else
   {
-    printf("WARNING: Some driver ICs did not respond\n");
+    Serial.println("[EPD] No image loaded — skipping display update");
   }
+
+  skip_display:;
+  // === END IMAGE DOWNLOAD BLOCK ===
 
   // === CLEANUP BLOCK ===
   imgFreeBuffers();         // release the 8 PSRAM section buffers

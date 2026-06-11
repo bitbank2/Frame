@@ -21,10 +21,13 @@
 // unchanged after imgFetchAndConvert() has been called.
 extern const uint8_t* BfkLx0_sections[IMG_FETCH_SECTIONS];
 
-// Download a PNG from url, scale it to 5120×720, convert to EPD 4bpp nibble
-// format, and fill BfkLx0_sections[0..7] with the result.
-// WiFi.begin() must have already been called before this function.
+// Download an image (PNG or BMP auto-detected), scale to 5120×720, convert to
+// EPD 4bpp nibble format and fill BfkLx0_sections[0..7].
+// WiFi must already be connected before calling.
 // Returns true on success; on failure BfkLx0_sections still point to white buffers.
+bool imgFetchUrl(const char* url);
+
+// Same as imgFetchUrl but only accepts PNG — kept for backward compatibility.
 bool imgFetchAndConvert(const char* url);
 
 // Download a pre-converted EPD binary (8 × 288000 bytes raw, sections concatenated)

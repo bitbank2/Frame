@@ -193,7 +193,225 @@ static uint32_t downloadToBuffer(WiFiClient* stream, int contentLen,
     return received;
 }
 
+// ── BMP decoder ──────────────────────────────────────────────────────────────
+// Handles 1-bit, 8-bit indexed, and 24/32-bit BMP (no RLE compression).
+// Scales from any source resolution to DISPLAY_VISIBLE_W × IMG_FETCH_SECTION_H.
+// _secBufs[] must already be allocated and pre-filled with 0x11 before calling.
+
+static bool imgDecodeBmp(const uint8_t* buf, uint32_t len)
+{
+    if (len < 54 || buf[0] != 'B' || buf[1] != 'M') {
+        Serial.println("[IMG] Not a BMP");
+        return false;
+    }
+
+    // Use memcpy to avoid unaligned pointer casts (undefined behavior on RISC-V)
+    uint32_t pixOff; memcpy(&pixOff, buf + 10, 4);
+    int32_t  srcW;   memcpy(&srcW,   buf + 18, 4);
+    int32_t  srcH;   memcpy(&srcH,   buf + 22, 4);
+    uint16_t bpp;    memcpy(&bpp,    buf + 28, 2);
+    uint32_t compress; memcpy(&compress, buf + 30, 4);
+
+    Serial.printf("[IMG] BMP header: pixOff=%u srcW=%d srcH=%d bpp=%u compress=%u\n",
+                  pixOff, srcW, srcH, bpp, compress);
+
+    if (compress != 0) {
+        Serial.printf("[IMG] Compressed BMP not supported\n");
+        return false;
+    }
+    if (bpp != 1 && bpp != 8 && bpp != 24 && bpp != 32) {
+        Serial.printf("[IMG] Unsupported BMP depth %u\n", bpp);
+        return false;
+    }
+
+    bool     topDown = (srcH < 0);
+    int32_t  rows    = topDown ? -srcH : srcH;
+    Serial.printf("[IMG] BMP: %dx%d %ubpp topDown=%d pixOff=%u\n",
+                  srcW, rows, bpp, topDown, pixOff);
+
+    // Palette (for 1-bit and 8-bit; each entry is 4 bytes BGRA)
+    uint8_t pal[256 * 4] = {};
+    if (bpp <= 8) {
+        uint32_t numColors = (1u << bpp);
+        uint32_t palBytes  = numColors * 4u;
+        if (54u + palBytes > pixOff) palBytes = pixOff - 54u;
+        if (palBytes > 0 && 54u + palBytes <= len)
+            memcpy(pal, buf + 54, palBytes);
+    }
+
+    // Row stride padded to 4-byte boundary
+    uint32_t stride;
+    switch (bpp) {
+        case 1:  stride = ((uint32_t)(srcW) + 31u) / 32u * 4u; break;
+        case 8:  stride = ((uint32_t)(srcW) +  3u) /  4u * 4u; break;
+        case 24: stride = ((uint32_t)(srcW) * 3u + 3u) / 4u * 4u; break;
+        default: stride = (uint32_t)(srcW) * 4u; break;  // 32-bit
+    }
+
+    for (int32_t sy = 0; sy < rows; sy++) {
+        // BMP rows are stored bottom-up unless height was negative
+        int32_t  srcRow = topDown ? sy : (rows - 1 - sy);
+        uint32_t rowOff = pixOff + (uint32_t)srcRow * stride;
+        if (rowOff + stride > len) break;
+        const uint8_t* row = buf + rowOff;
+
+        uint32_t dr = (uint32_t)((uint64_t)sy * IMG_FETCH_SECTION_H / (uint32_t)rows);
+        if (sy > 0) {
+            uint32_t prevDr = (uint32_t)((uint64_t)(sy - 1) * IMG_FETCH_SECTION_H / (uint32_t)rows);
+            if (prevDr == dr) continue;
+        }
+        if (dr >= IMG_FETCH_SECTION_H) continue;
+
+        for (int32_t sx = 0; sx < srcW; sx++) {
+            uint8_t r = 0, g = 0, b = 0;
+            switch (bpp) {
+                case 1: {
+                    uint8_t bit = (row[sx >> 3] >> (7 - (sx & 7))) & 1u;
+                    b = pal[bit*4]; g = pal[bit*4+1]; r = pal[bit*4+2];
+                    break;
+                }
+                case 8: {
+                    uint8_t idx = row[sx];
+                    b = pal[idx*4]; g = pal[idx*4+1]; r = pal[idx*4+2];
+                    break;
+                }
+                case 24:
+                    b = row[sx*3]; g = row[sx*3+1]; r = row[sx*3+2];
+                    break;
+                case 32:
+                    b = row[sx*4]; g = row[sx*4+1]; r = row[sx*4+2];
+                    break;
+            }
+
+            uint8_t  nib = toNibble(r, g, b);
+            uint32_t dc0 = (uint32_t)((uint64_t)sx       * DISPLAY_VISIBLE_W / (uint32_t)srcW);
+            uint32_t dc1 = (uint32_t)((uint64_t)(sx + 1) * DISPLAY_VISIBLE_W / (uint32_t)srcW);
+            if (dc1 <= dc0) dc1 = dc0 + 1;
+            for (uint32_t dc = dc0; dc < dc1 && dc < DISPLAY_VISIBLE_W; dc++)
+                writePixel(dc, dr, nib);
+        }
+    }
+    return true;
+}
+
+// ── Shared download + decode (PNG or BMP auto-detected) ──────────────────────
+
+static bool imgDownloadAndDecode(const char* url)
+{
+    // HTTP download into a PSRAM buffer
+    bool       isHttps = (strncmp(url, "https", 5) == 0);
+    WiFiClient*       client    = nullptr;
+    WiFiClientSecure* secClient = nullptr;
+    if (isHttps) {
+        secClient = new WiFiClientSecure();
+        secClient->setInsecure();
+        client = secClient;
+    } else {
+        client = new WiFiClient();
+    }
+
+    HTTPClient* http = new HTTPClient();
+    if (!http->begin(*client, url)) {
+        Serial.println("[IMG] http.begin() failed");
+        delete http; delete client;
+        return false;
+    }
+    http->setReuse(false);
+    http->setTimeout(30000);
+    http->setConnectTimeout(15000);
+    http->addHeader("Accept-Encoding", "identity");
+
+    Serial.printf("[IMG] GET %s\n", url);
+    int code = http->GET();
+    if (code != HTTP_CODE_OK) {
+        Serial.printf("[IMG] HTTP error %d\n", code);
+        http->end(); delete http; delete client;
+        return false;
+    }
+    int contentLen = http->getSize();
+    Serial.printf("[IMG] Content-Length: %d\n", contentLen);
+
+    const uint32_t MAX_BUF = 1536u * 1024u;
+    uint32_t allocLen = (contentLen > 0 && (uint32_t)contentLen < MAX_BUF)
+                        ? (uint32_t)contentLen : MAX_BUF;
+    uint8_t* imgBuf = (uint8_t*)ps_malloc(allocLen);
+    if (!imgBuf) {
+        Serial.printf("[IMG] ps_malloc(%u) failed\n", allocLen);
+        http->end(); delete http; delete client;
+        return false;
+    }
+
+    WiFiClient* stream = http->getStreamPtr();
+    uint32_t received = downloadToBuffer(stream, contentLen, imgBuf, allocLen);
+    stream->stop();
+    http->end();
+    delete http; delete client;
+
+    if (received < 4) {
+        Serial.println("[IMG] Too few bytes received");
+        free(imgBuf); return false;
+    }
+
+    Serial.printf("[IMG] Magic: %02X %02X %02X %02X\n",
+                  imgBuf[0], imgBuf[1], imgBuf[2], imgBuf[3]);
+
+    bool ok = false;
+    static const uint8_t kPngMagic[] = {0x89, 0x50, 0x4E, 0x47};
+    if (memcmp(imgBuf, kPngMagic, 4) == 0) {
+        // PNG
+        PNG* png = new PNG();
+        int rc = png->openRAM(imgBuf, (int)received, pngDrawCb);
+        if (rc != PNG_SUCCESS) {
+            Serial.printf("[IMG] PNG open error %d\n", rc);
+        } else {
+            PngCtx ctx = { png->getWidth(), png->getHeight() };
+            Serial.printf("[IMG] PNG %dx%d %dbpp\n", ctx.srcW, ctx.srcH, png->getBpp());
+            int decRc = png->decode((void*)&ctx, 0);
+            Serial.printf("[IMG] PNG decode rc=%d\n", decRc);
+            ok = (decRc == PNG_SUCCESS || decRc == PNG_QUIT_EARLY);
+        }
+        png->close(); delete png;
+    } else if (imgBuf[0] == 'B' && imgBuf[1] == 'M') {
+        // BMP
+        ok = imgDecodeBmp(imgBuf, received);
+    } else {
+        Serial.println("[IMG] Unknown image format");
+    }
+
+    free(imgBuf);
+    return ok;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
+
+// Auto-detect PNG or BMP and decode.
+bool imgFetchUrl(const char* url)
+{
+    for (int i = 0; i < IMG_FETCH_SECTIONS; i++) {
+        _secBufs[i] = (uint8_t*)ps_malloc(IMG_FETCH_BYTES);
+        if (!_secBufs[i]) {
+            Serial.printf("[IMG] ps_malloc failed section %d\n", i);
+            imgFreeBuffers(); return false;
+        }
+        memset(_secBufs[i], 0x11, IMG_FETCH_BYTES);
+        BfkLx0_sections[i] = _secBufs[i];
+    }
+    Serial.printf("[IMG] %d section buffers ready\n", IMG_FETCH_SECTIONS);
+
+    Serial.printf("[IMG] Waiting for WiFi (%s)...", IMG_FETCH_WIFI_SSID);
+    uint32_t tWifi = millis();
+    while (WiFi.status() != WL_CONNECTED) {
+        if (millis() - tWifi > 20000UL) { Serial.println("\n[IMG] WiFi timeout"); return false; }
+        delay(250); Serial.print('.');
+    }
+    Serial.printf("\n[IMG] Connected %s\n", WiFi.localIP().toString().c_str());
+
+    bool ok = imgDownloadAndDecode(url);
+    if (ok) Serial.println("[IMG] Decode complete");
+    else    Serial.println("[IMG] Decode failed — buffers stay white");
+    return ok;
+}
+
 bool imgFetchAndConvert(const char* url)
 {
     // Allocate 8 PSRAM section buffers; pre-fill with white (0x11 = white nibble in both positions)
