@@ -785,3 +785,25 @@ void imgFreeBuffers(void)
         BfkLx0_sections[i] = nullptr;
     }
 }
+
+bool imgAllocSolid(uint8_t fill_nib)
+{
+    imgFreeBuffers();
+    uint8_t fillByte = (uint8_t)((fill_nib << 4) | fill_nib);
+    for (int i = 0; i < IMG_FETCH_SECTIONS; i++) {
+        _secBufs[i] = (uint8_t*)ps_malloc(IMG_FETCH_BYTES);
+        if (!_secBufs[i]) {
+            imgFreeBuffers();
+            return false;
+        }
+        memset(_secBufs[i], fillByte, IMG_FETCH_BYTES);
+        BfkLx0_sections[i] = _secBufs[i];
+    }
+    return true;
+}
+
+// ── Direct pixel write (imgDrawText lives in img_overlay.cpp) ─────────────────
+
+void imgWritePixel(uint32_t dc, uint32_t dr, uint8_t nib) {
+    writePixel(dc, dr, nib);
+}

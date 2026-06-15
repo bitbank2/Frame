@@ -483,36 +483,68 @@ void setup()
   }
   Serial.printf("\n[WIFI] Connected — IP: %s  RSSI: %d dBm\n",
                 WiFi.localIP().toString().c_str(), WiFi.RSSI());
+  Serial.println("================================================");
+  Serial.printf("  MAC: %s\n", WiFi.macAddress().c_str());
+  Serial.println("================================================");
 
-  // ── Step 1: get/restore API key from NVS ───────────────────────────────────
+  // ── Step 1: get/restore API key + friendly_id from NVS ────────────────────
   {
     Preferences prefs;
     prefs.begin("trmnl", false);
-    String apiKey = prefs.getString("api_key", "");
+    String apiKey     = prefs.getString("api_key",     "");
+    String friendlyId = prefs.getString("friendly_id", "");
 
     if (apiKey.isEmpty()) {
       TrmnlSetupResult setup = trmnlSetup();
       if (!setup.ok) {
-        Serial.printf("[TRMNL] setup failed (status=%d) — device not registered?\n", setup.status);
+        Serial.println("\n================================================");
+        Serial.printf("  DEVICE NOT REGISTERED  (status=%d)\n", setup.status);
+        Serial.println("  Go to usetrmnl.com → Add Device, enter MAC:");
+        Serial.printf("  >>> %s <<<\n", WiFi.macAddress().c_str());
+        Serial.println("================================================\n");
+        // Show MAC address large and centered so user can read it off the display
+        if (imgAllocSolid(0x1)) {
+          char mac[24] = {};
+          WiFi.macAddress().toCharArray(mac, sizeof(mac));
+          const uint32_t sc  = 10u;
+          const uint32_t len = (uint32_t)strlen(mac);
+          const uint32_t cx  = (len * 8u * sc < DISPLAY_VISIBLE_W)
+                               ? (DISPLAY_VISIBLE_W - len * 8u * sc) / 2u : 0u;
+          const uint32_t cy  = (8u * sc < IMG_FETCH_SECTION_H)
+                               ? (IMG_FETCH_SECTION_H - 8u * sc) / 2u : 0u;
+          imgDrawText(cx, cy, mac, 0x0u, 0x1u, (uint8_t)sc);
+        }
         prefs.end();
         goto skip_display;
       }
-      Serial.printf("[TRMNL] Registered  api_key=%s  friendly_id=%s\n",
-                    setup.api_key.c_str(), setup.friendly_id.c_str());
       prefs.putString("api_key",     setup.api_key);
       prefs.putString("friendly_id", setup.friendly_id);
-      apiKey = setup.api_key;
-    } else {
-      Serial.printf("[TRMNL] API key: %s\n", apiKey.c_str());
+      apiKey     = setup.api_key;
+      friendlyId = setup.friendly_id;
     }
     prefs.end();
+
+    // ── Device identity banner — always visible in serial log ───────────────
+    Serial.println("\n================================================");
+    Serial.printf("  MAC:         %s\n", WiFi.macAddress().c_str());
+    Serial.printf("  Friendly ID: %s\n",
+                  friendlyId.isEmpty() ? "(not registered yet)" : friendlyId.c_str());
+    Serial.println("================================================\n");
 
     // ── Step 2: get image URL from /api/display ─────────────────────────────
     TrmnlDisplayResult disp = trmnlDisplay(apiKey, bat.voltage_mV);
     if (!disp.ok) {
-      // status=202 means no plugin assigned yet — go to usetrmnl.com and add
-      // this device using friendly_id printed above, then assign a plugin.
-      Serial.printf("[TRMNL] display: status=%d, no image — skipping EPD update\n", disp.status);
+      Serial.printf("[TRMNL] display: status=%d, no image\n", disp.status);
+      // Show friendly_id large and centered — device registered but no plugin yet
+      if (imgAllocSolid(0x1) && !friendlyId.isEmpty()) {
+        const uint32_t sc  = 14u;
+        const uint32_t len = (uint32_t)friendlyId.length();
+        const uint32_t cx  = (len * 8u * sc < DISPLAY_VISIBLE_W)
+                             ? (DISPLAY_VISIBLE_W - len * 8u * sc) / 2u : 0u;
+        const uint32_t cy  = (8u * sc < IMG_FETCH_SECTION_H)
+                             ? (IMG_FETCH_SECTION_H - 8u * sc) / 2u : 0u;
+        imgDrawText(cx, cy, friendlyId.c_str(), 0x0u, 0x1u, (uint8_t)sc);
+      }
       goto skip_display;
     }
     if (disp.refresh_rate > 0) {
@@ -530,8 +562,10 @@ void setup()
     imgFetchUrl(disp.image_url.c_str());
   }
 
-  // Only drive the EPD if section buffers were actually populated.
-  // BfkLx0_sections[0] is null when imgFetchUrl was never called or failed.
+  skip_display:;
+  // === END IMAGE DOWNLOAD BLOCK ===
+
+  // Drive EPD with whatever was prepared: real image, device-info screen, or nothing.
   if (BfkLx0_sections[0] != nullptr)
   {
     delayms(10);
@@ -558,13 +592,6 @@ void setup()
       printf("WARNING: Some driver ICs did not respond\n");
     }
   }
-  else
-  {
-    Serial.println("[EPD] No image loaded — skipping display update");
-  }
-
-  skip_display:;
-  // === END IMAGE DOWNLOAD BLOCK ===
 
   // === CLEANUP BLOCK ===
   imgFreeBuffers();         // release the 8 PSRAM section buffers

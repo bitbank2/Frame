@@ -38,3 +38,22 @@ bool imgFetchBinary(const char* url);
 // Free the eight PSRAM section buffers allocated by imgFetch*.
 // Call this after epdDisplay() has finished and the data is no longer needed.
 void imgFreeBuffers(void);
+
+// Allocate section buffers and fill every pixel with a solid EPD color nibble.
+// Use to create a blank canvas for device-info screens (no image download needed).
+// Caller must still call imgFreeBuffers() when done.
+bool imgAllocSolid(uint8_t fill_nib);
+
+// Write one display pixel directly into the section buffers.
+// dc = display column (0..5119), dr = display row (0..719), nib = EPD color nibble.
+// Call only while buffers are allocated (after imgFetchUrl, before imgFreeBuffers).
+void imgWritePixel(uint32_t dc, uint32_t dr, uint8_t nib);
+
+// Overlay ASCII text onto the current section buffers using an embedded 8x8 font.
+// x, y: top-left corner in display coordinates (0..5119, 0..719).
+// fg_nib, bg_nib: EPD color nibbles (0x0=Black, 0x1=White, 0x2=Yellow,
+//                 0x3=Red, 0x5=Blue, 0x6=Green).
+// scale: pixel multiplier — 4 gives 32x32 px per character, readable at arm's length.
+// Call after imgFetchUrl() and before epdWriteImage().
+void imgDrawText(uint32_t x, uint32_t y, const char* text,
+                 uint8_t fg_nib, uint8_t bg_nib, uint8_t scale);
