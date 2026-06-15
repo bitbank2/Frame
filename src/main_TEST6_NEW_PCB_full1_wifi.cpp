@@ -8,6 +8,7 @@
 #include "status.h"
 #include "img_fetch.h"   // BfkLx0_sections[] via PSRAM download (PNG + BMP)
 #include "api_client.h"  // TRMNL /api/setup + /api/display
+#include "battery.h"     // BQ27427 fuel gauge + BQ25616 charger status
 #include "esp_sleep.h"
 #include <WiFi.h>
 #include <Preferences.h>
@@ -92,11 +93,14 @@ void printWakeupReason()
   esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   switch (cause)
   {
+  case ESP_SLEEP_WAKEUP_TIMER:
+    Serial.println("[SLEEP] Wakeup cause: timer");
+    break;
   case ESP_SLEEP_WAKEUP_GPIO:
-    Serial.println("[SLEEP] Wakeup cause: GPIO (IO27 / INT2)");
+    Serial.println("[SLEEP] Wakeup cause: GPIO");
     break;
   case ESP_SLEEP_WAKEUP_UNDEFINED:
-    Serial.println("[SLEEP] Wakeup cause: Power-on / reset (not deep sleep)");
+    Serial.println("[SLEEP] Wakeup cause: power-on / reset");
     break;
   default:
     Serial.printf("[SLEEP] Wakeup cause: %d\n", (int)cause);
@@ -104,8 +108,13 @@ void printWakeupReason()
   }
 }
 
-void enterDeepSleep()
+void enterDeepSleep(uint32_t sleepSeconds)
 {
+  if (sleepSeconds < SLEEP_DURATION_MIN_SECS) sleepSeconds = SLEEP_DURATION_MIN_SECS;
+  Serial.printf("[SLEEP] Will sleep for %u s (%u min)\n", sleepSeconds, sleepSeconds / 60);
+
+  esp_sleep_enable_timer_wakeup((uint64_t)sleepSeconds * 1000000ULL);
+
   Serial.println("[SLEEP] Configuring IO as deep sleep wakeup source (active LOW)...");
   expander2.pinMode1(EXP2_EN_DC12, INPUT);
   delay(50);
@@ -178,7 +187,7 @@ void enterDeepSleep()
     return;
   }
 
-  Serial.println("[SLEEP] Entering deep sleep. Will wake on IO27 LOW.");
+  Serial.println("[SLEEP] Entering deep sleep.");
   Serial.flush();
   esp_deep_sleep_start();
 }
@@ -430,7 +439,22 @@ void setup()
     printf("[EPD] %s buffer ready in PSRAM (%u bytes)\n", colorNames[i], EPD_IMAGE_DATA_BUFFER);
   }
 
-    // === WIFI START BLOCK ===
+  // Read battery before starting WiFi (shows state at wake-up)
+  BatteryStatus bat = batteryRead();
+  batteryLog(bat);
+
+  // Load last known refresh rate from NVS; fall back to default on first boot.
+  uint32_t sleepSeconds = SLEEP_DURATION_SECONDS;
+  {
+    Preferences p;
+    p.begin("trmnl", true);  // read-only
+    sleepSeconds = p.getUInt("sleep_s", SLEEP_DURATION_SECONDS);
+    p.end();
+  }
+  Serial.printf("[SLEEP] Refresh rate: %u s (%u min) — from NVS\n",
+                sleepSeconds, sleepSeconds / 60);
+
+  // === WIFI START BLOCK ===
   WiFi.persistent(false);   // do not save credentials to NVS — avoids stale state
   WiFi.disconnect(true);    // clear any state from a previous WiFi.mode() call
   delay(100);
@@ -484,15 +508,23 @@ void setup()
     prefs.end();
 
     // ── Step 2: get image URL from /api/display ─────────────────────────────
-    TrmnlDisplayResult disp = trmnlDisplay(apiKey);
+    TrmnlDisplayResult disp = trmnlDisplay(apiKey, bat.voltage_mV);
     if (!disp.ok) {
       // status=202 means no plugin assigned yet — go to usetrmnl.com and add
       // this device using friendly_id printed above, then assign a plugin.
       Serial.printf("[TRMNL] display: status=%d, no image — skipping EPD update\n", disp.status);
       goto skip_display;
     }
+    if (disp.refresh_rate > 0) {
+      sleepSeconds = disp.refresh_rate;
+      Preferences p;
+      p.begin("trmnl", false);
+      p.putUInt("sleep_s", sleepSeconds);
+      p.end();
+      Serial.printf("[SLEEP] Refresh rate %u s saved to NVS\n", sleepSeconds);
+    }
     Serial.printf("[TRMNL] image_url=%s  refresh=%us\n",
-                  disp.image_url.c_str(), disp.refresh_rate);
+                  disp.image_url.c_str(), sleepSeconds);
 
     // ── Step 3: download image (PNG or BMP) and decode into EPD buffers ─────
     imgFetchUrl(disp.image_url.c_str());
@@ -539,9 +571,12 @@ void setup()
   WiFi.disconnect(true);    // shut down WiFi radio before deep sleep
   // === END CLEANUP BLOCK ===
 
+  // Read battery again before sleep (shows state after display update)
+  batteryLog(batteryRead());
+
   powerSwitchDisable();
   printf("======================================\n\n");
-  enterDeepSleep();
+  enterDeepSleep(sleepSeconds);
 }
 void loop()
 {

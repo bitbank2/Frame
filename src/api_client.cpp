@@ -91,21 +91,30 @@ TrmnlSetupResult trmnlSetup(const String& baseUrl)
 
 // ── GET /api/display ──────────────────────────────────────────────────────────
 
-TrmnlDisplayResult trmnlDisplay(const String& api_key, const String& baseUrl)
+TrmnlDisplayResult trmnlDisplay(const String& api_key,
+                                uint16_t battery_voltage_mV,
+                                const String& baseUrl)
 {
     String mac  = WiFi.macAddress();
     String rssi = String(WiFi.RSSI());
-    Serial.printf("[API] display  ID=%s RSSI=%s\n", mac.c_str(), rssi.c_str());
+
+    // Format voltage as "V.vv" (e.g. 3842 mV → "3.84"); fall back to "0" if unknown.
+    char voltBuf[8] = "0";
+    if (battery_voltage_mV > 0)
+        snprintf(voltBuf, sizeof(voltBuf), "%u.%02u",
+                 battery_voltage_mV / 1000,
+                 (battery_voltage_mV % 1000) / 10);
+
+    Serial.printf("[API] display  ID=%s RSSI=%s Battery=%smV\n",
+                  mac.c_str(), rssi.c_str(), voltBuf);
 
     String body;
     int httpCode = httpGet(baseUrl + "/api/display",
-        // Headers match buildDisplayHeaders() in the official firmware.
-        // Battery-Voltage sent as "0" — no battery on this hardware.
         {
             { "ID",              mac               },
             { "Access-Token",    api_key           },
             { "Refresh-Rate",    "900"             },
-            { "Battery-Voltage", "4.0"             },
+            { "Battery-Voltage", voltBuf           },
             { "FW-Version",      TRMNL_FW_VERSION  },
             { "RSSI",            rssi              },
             { "Content-Type",    "application/json"},

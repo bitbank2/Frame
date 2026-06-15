@@ -7,10 +7,8 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
-// PNGdec internal pixel buffer: default 2562 bytes only fits images up to ~853px wide at 24bpp.
-// 2560px wide 24bpp needs iPitch=7680; define the limit larger before the header is included.
-// The ucPixels[16384] array lives inside the PNG object which is heap-allocated (not stack).
-#define PNG_MAX_BUFFERED_PIXELS 16384
+// PNG_MAX_BUFFERED_PIXELS=16384 is set globally in platformio.ini build_flags so that
+// PNGdec.cpp (which compiles png.inl) uses the same limit as the struct definition.
 #include <PNGdec.h>
 
 // ── Global BfkLx0_sections (replaces the static const arrays in BfkLx0.h) ──────
@@ -79,91 +77,103 @@ static void writePixel(uint32_t dc, uint32_t dr, uint8_t nib)
 
 // ── PNGdec draw callback (one call per decoded scanline) ─────────────────────
 struct PngCtx {
-    int srcW;   // source image width  (from PNG header)
-    int srcH;   // source image height (from PNG header)
+    int srcW, srcH;
+    int  cropTop;  // first source row shown (only used when yCrop=true)
+    bool yCrop;    // true  = show native rows from cropTop (color images, avoids dither stripes)
+                   // false = nearest-neighbour Y downscale / row-skip (1-bit images, full height)
 };
+
+// Decode one pixel from the PNGdec pixel stream and return its RGB.
+// Advances *ps according to bit depth.
+static inline void decodePix(int sx, uint8_t** ps, int iBpp, int iType,
+                              const uint8_t* pPalette,
+                              uint8_t* r, uint8_t* g, uint8_t* b)
+{
+    uint8_t* s = *ps;
+    *r = *g = *b = 0;
+    switch (iBpp) {
+        case 32: *r=s[0]; *g=s[1]; *b=s[2]; *ps+=4; break;
+        case 24: *r=s[0]; *g=s[1]; *b=s[2]; *ps+=3; break;
+        case 8:
+            if (iType == PNG_PIXEL_INDEXED && pPalette) {
+                *r=pPalette[s[0]*3]; *g=pPalette[s[0]*3+1]; *b=pPalette[s[0]*3+2];
+            } else { *r=*g=*b=s[0]; }
+            *ps+=1; break;
+        case 4: {
+            uint8_t idx = (sx & 1) ? (s[0] & 0x0F) : (s[0] >> 4);
+            if (iType == PNG_PIXEL_INDEXED && pPalette) {
+                *r=pPalette[idx*3]; *g=pPalette[idx*3+1]; *b=pPalette[idx*3+2];
+            } else { *r=*g=*b=(uint8_t)(idx|(idx<<4)); }
+            if (sx & 1) *ps+=1;
+            break;
+        }
+        case 2: {
+            uint8_t idx = (s[0] >> (6-((sx&3)*2))) & 3;
+            if (iType == PNG_PIXEL_INDEXED && pPalette) {
+                *r=pPalette[idx*3]; *g=pPalette[idx*3+1]; *b=pPalette[idx*3+2];
+            } else { *r=*g=*b=(uint8_t)(idx*85); }
+            if ((sx & 3) == 3) *ps+=1;
+            break;
+        }
+        case 1: {
+            uint8_t bit = (s[0] >> (7-(sx&7))) & 1;
+            if (iType == PNG_PIXEL_INDEXED && pPalette) {
+                *r=pPalette[bit*3]; *g=pPalette[bit*3+1]; *b=pPalette[bit*3+2];
+            } else { *r=*g=*b=(uint8_t)(bit?255:0); }
+            if ((sx & 7) == 7) *ps+=1;
+            break;
+        }
+    }
+}
 
 // PNGdec draw callback: return 1 to continue decoding, 0 to stop early.
 static int pngDrawCb(PNGDRAW *pDraw)
 {
     PngCtx* ctx = (PngCtx*)pDraw->pUser;
 
-    // Nearest-neighbour Y downscale: only write rows that map to a new display row
-    uint32_t dr = (uint32_t)((uint64_t)pDraw->y * IMG_FETCH_SECTION_H / ctx->srcH);
-    // Skip if this source row maps to the same display row as the previous one
-    // (i.e. only write on the first source row that maps to each display row)
-    if (pDraw->y > 0) {
-        uint32_t prevDr = (uint32_t)((uint64_t)(pDraw->y - 1) * IMG_FETCH_SECTION_H / ctx->srcH);
-        if (prevDr == dr) return 1;
+    uint32_t dr;
+    if (ctx->yCrop) {
+        // Color images: show source rows [cropTop .. cropTop+SECTION_H) at 1:1 Y scale.
+        // Avoids horizontal stripe artifacts caused by downscaling pre-dithered 6-color rows.
+        int dr_raw = (int)pDraw->y - ctx->cropTop;
+        if (dr_raw < 0 || dr_raw >= (int)IMG_FETCH_SECTION_H) return 1;
+        dr = (uint32_t)dr_raw;
+    } else {
+        // 1-bit / B&W images: nearest-neighbour Y downscale — skip rows that map to an
+        // already-written display row. Shows the full image height with no cropping.
+        dr = (uint32_t)((uint64_t)pDraw->y * IMG_FETCH_SECTION_H / ctx->srcH);
+        if (pDraw->y > 0) {
+            uint32_t prevDr = (uint32_t)((uint64_t)(pDraw->y-1) * IMG_FETCH_SECTION_H / ctx->srcH);
+            if (prevDr == dr) return 1;
+        }
+        if (dr >= IMG_FETCH_SECTION_H) return 1;
     }
-    if (dr >= IMG_FETCH_SECTION_H) return 1;
 
-    uint8_t *s       = pDraw->pPixels;
-    int      iBpp    = pDraw->iBpp;
-    int      iType   = pDraw->iPixelType;
-    uint8_t *pPalette = pDraw->pPalette;
-
-    if (dr == 0) Serial.printf("[IMG] cb row0: iBpp=%d iType=%d px0=%02X %02X %02X\n",
-                               iBpp, iType, s[0], s[1], s[2]);
-
-    // Adjust iBpp to total bits (PNGdec reports per-channel for truecolor)
+    uint8_t* s = pDraw->pPixels;
+    int iBpp   = pDraw->iBpp;
+    int iType  = pDraw->iPixelType;
+    const uint8_t* pPal = pDraw->pPalette;
     if (iType == PNG_PIXEL_TRUECOLOR       && iBpp <= 8) iBpp *= 3;
     if (iType == PNG_PIXEL_TRUECOLOR_ALPHA && iBpp <= 8) iBpp *= 4;
 
-    for (int sx = 0; sx < pDraw->iWidth; sx++) {
-        uint8_t r = 0, g = 0, b = 0;
+    if (dr == 0)
+        Serial.printf("[IMG] cb first display row (srcY=%d): iBpp=%d iType=%d px0=%02X %02X %02X\n",
+                      pDraw->y, iBpp, iType, s[0], s[1], s[2]);
 
-        switch (iBpp) {
-            case 32: r = s[0]; g = s[1]; b = s[2]; s += 4; break;
-            case 24: r = s[0]; g = s[1]; b = s[2]; s += 3; break;
-            case 8:
-                if (iType == PNG_PIXEL_INDEXED && pPalette) {
-                    r = pPalette[s[0]*3]; g = pPalette[s[0]*3+1]; b = pPalette[s[0]*3+2];
-                } else { r = g = b = s[0]; }
-                s++;
-                break;
-            case 4:
-            {
-                uint8_t idx = (sx & 1) ? (s[0] & 0x0F) : (s[0] >> 4);
-                if (iType == PNG_PIXEL_INDEXED && pPalette) {
-                    r = pPalette[idx*3]; g = pPalette[idx*3+1]; b = pPalette[idx*3+2];
-                } else { r = g = b = (uint8_t)(idx | (idx << 4)); }
-                if (sx & 1) s++;
-                break;
-            }
-            case 2:
-            {
-                uint8_t idx = (s[0] >> (6 - ((sx & 3) * 2))) & 3;
-                if (iType == PNG_PIXEL_INDEXED && pPalette) {
-                    r = pPalette[idx*3]; g = pPalette[idx*3+1]; b = pPalette[idx*3+2];
-                } else { r = g = b = (uint8_t)(idx * 85); }
-                if ((sx & 3) == 3) s++;
-                break;
-            }
-            case 1:
-            {
-                uint8_t bit = (s[0] >> (7 - (sx & 7))) & 1;
-                if (iType == PNG_PIXEL_INDEXED && pPalette) {
-                    r = pPalette[bit*3]; g = pPalette[bit*3+1]; b = pPalette[bit*3+2];
-                } else { r = g = b = (uint8_t)(bit ? 255 : 0); }
-                if ((sx & 7) == 7) s++;
-                break;
-            }
-            default: break;
-        }
+    int width = pDraw->iWidth;
+    if (width > ctx->srcW) width = ctx->srcW;
 
+    for (int sx = 0; sx < width; sx++) {
+        uint8_t r, g, b;
+        decodePix(sx, &s, iBpp, iType, pPal, &r, &g, &b);
         uint8_t nib = toNibble(r, g, b);
-
-        // Nearest-neighbour X upscale/downscale to DISPLAY_VISIBLE_W
         uint32_t dc0 = (uint32_t)((uint64_t)sx     * DISPLAY_VISIBLE_W / ctx->srcW);
         uint32_t dc1 = (uint32_t)((uint64_t)(sx+1) * DISPLAY_VISIBLE_W / ctx->srcW);
-        if (dc1 <= dc0) dc1 = dc0 + 1; // always write ≥ 1 column
-
-        for (uint32_t dc = dc0; dc < dc1 && dc < DISPLAY_VISIBLE_W; dc++) {
+        if (dc1 <= dc0) dc1 = dc0 + 1;
+        for (uint32_t dc = dc0; dc < dc1 && dc < DISPLAY_VISIBLE_W; dc++)
             writePixel(dc, dr, nib);
-        }
     }
-    return 1; // continue decoding
+    return 1;
 }
 
 // ── Download helper (adapted from firmware downloadStream) ────────────────────
@@ -177,12 +187,15 @@ static uint32_t downloadToBuffer(WiFiClient* stream, int contentLen,
     unsigned long tLast  = millis();
 
     while (received < toRead) {
-        if (stream->available()) {
+        int avail = stream->available();
+        if (avail > 0) {
             int n = stream->readBytes(buf + received,
-                                      min(stream->available(), (int)(toRead - received)));
-            received += (uint32_t)n;
-            tLast = millis();
-        } else if (!stream->connected() || millis() - tLast > 5000) {
+                                      min(avail, (int)(toRead - received)));
+            if (n > 0) { received += (uint32_t)n; tLast = millis(); }
+        } else if (!stream->connected()) {
+            break;
+        } else if (millis() - tLast > 20000UL) {  // 20 s stall limit (was 5 s)
+            Serial.println("[IMG] Download stall timeout");
             break;
         }
         delay(1);
@@ -294,6 +307,93 @@ static bool imgDecodeBmp(const uint8_t* buf, uint32_t len)
     return true;
 }
 
+// ── PNG IDAT merger ───────────────────────────────────────────────────────────
+// PNGdec has a bug reading the 4-byte CRC that follows each IDAT chunk: it reads
+// the CRC bytes as the next chunk's length, the bounds check fires, and
+// PNG_DECODE_ERROR is returned on any PNG with more than one IDAT chunk.
+// Fix: rebuild the PNG in a new PSRAM buffer with all IDAT data merged into one
+// chunk.  The merged chunk gets a dummy CRC (0x00000000) — PNGdec never checks
+// chunk CRC (iOptions=0 → PNG_CHECK_CRC not set in the inflate call).
+static uint8_t* pngMergeIdats(const uint8_t* src, uint32_t srcLen, uint32_t* outLen)
+{
+    if (srcLen < 8) return nullptr;
+
+    // Phase 1: count IDAT chunks and total IDAT data bytes
+    int     idatCount  = 0;
+    uint32_t totalIdat = 0;
+    uint32_t pos = 8;
+    while (pos + 8 <= srcLen) {
+        uint32_t clen  = ((uint32_t)src[pos]<<24)|((uint32_t)src[pos+1]<<16)|
+                          ((uint32_t)src[pos+2]<<8)|src[pos+3];
+        bool isIdat = memcmp(src+pos+4, "IDAT", 4) == 0;
+        bool isIend = memcmp(src+pos+4, "IEND", 4) == 0;
+        if (isIdat) { idatCount++; totalIdat += clen; }
+        if (isIend) break;
+        if (pos + 8 + clen + 4 <= pos) break; // overflow guard
+        pos += 8 + clen + 4;
+    }
+
+    if (idatCount <= 1) return nullptr; // nothing to merge
+
+    Serial.printf("[IMG] Merging %d IDAT chunks (%u bytes total) into one\n",
+                  idatCount, totalIdat);
+
+    // Phase 2: allocate output (same size as input is sufficient)
+    uint8_t* dst = (uint8_t*)ps_malloc(srcLen);
+    if (!dst) { Serial.println("[IMG] pngMergeIdats: ps_malloc failed"); return nullptr; }
+
+    // Phase 3: copy signature + non-IDAT chunks, then one merged IDAT, then IEND
+    uint32_t d = 0;
+    memcpy(dst, src, 8); d = 8; // PNG signature
+
+    bool idatWritten = false;
+    pos = 8;
+    while (pos + 8 <= srcLen) {
+        uint32_t clen  = ((uint32_t)src[pos]<<24)|((uint32_t)src[pos+1]<<16)|
+                          ((uint32_t)src[pos+2]<<8)|src[pos+3];
+        bool isIdat = memcmp(src+pos+4, "IDAT", 4) == 0;
+        bool isIend = memcmp(src+pos+4, "IEND", 4) == 0;
+
+        if (isIend) {
+            memcpy(dst+d, src+pos, 12); d += 12; // copy IEND verbatim
+            break;
+        }
+        if (isIdat) {
+            if (!idatWritten) {
+                // Write merged IDAT chunk header
+                dst[d+0]=(uint8_t)(totalIdat>>24); dst[d+1]=(uint8_t)(totalIdat>>16);
+                dst[d+2]=(uint8_t)(totalIdat>>8);  dst[d+3]=(uint8_t)(totalIdat);
+                dst[d+4]='I'; dst[d+5]='D'; dst[d+6]='A'; dst[d+7]='T';
+                d += 8;
+                // Collect all IDAT data in a second pass
+                uint32_t p2 = 8;
+                while (p2 + 8 <= srcLen) {
+                    uint32_t clen2 = ((uint32_t)src[p2]<<24)|((uint32_t)src[p2+1]<<16)|
+                                     ((uint32_t)src[p2+2]<<8)|src[p2+3];
+                    if (memcmp(src+p2+4, "IDAT", 4) == 0) {
+                        memcpy(dst+d, src+p2+8, clen2); d += clen2;
+                    }
+                    if (memcmp(src+p2+4, "IEND", 4) == 0) break;
+                    p2 += 8 + clen2 + 4;
+                }
+                // Dummy CRC (not checked by PNGdec when iOptions=0)
+                dst[d]=0; dst[d+1]=0; dst[d+2]=0; dst[d+3]=0; d += 4;
+                idatWritten = true;
+            }
+            pos += 8 + clen + 4; // skip this IDAT chunk
+            continue;
+        }
+        // Non-IDAT, non-IEND chunk: copy verbatim
+        if (d + 8 + clen + 4 <= srcLen) { // bounds guard
+            memcpy(dst+d, src+pos, 8+clen+4); d += 8+clen+4;
+        }
+        pos += 8 + clen + 4;
+    }
+
+    *outLen = d;
+    return dst;
+}
+
 // ── Shared download + decode (PNG or BMP auto-detected) ──────────────────────
 
 static bool imgDownloadAndDecode(const char* url)
@@ -358,16 +458,53 @@ static bool imgDownloadAndDecode(const char* url)
     bool ok = false;
     static const uint8_t kPngMagic[] = {0x89, 0x50, 0x4E, 0x47};
     if (memcmp(imgBuf, kPngMagic, 4) == 0) {
+        // Print IHDR fields: bit depth [24], color type [25], interlace [28]
+        Serial.printf("[IMG] IHDR: bitdepth=%u colortype=%u compress=%u filter=%u interlace=%u\n",
+                      imgBuf[24], imgBuf[25], imgBuf[26], imgBuf[27], imgBuf[28]);
+        Serial.printf("[IMG] Free DRAM before PNG: %u bytes\n", esp_get_free_heap_size());
+        // Scan PNG chunks to check for multiple IDATs or odd structure
+        {
+            uint32_t pos = 8; // skip PNG signature
+            int idatCount = 0;
+            while (pos + 8 <= received) {
+                uint32_t clen = ((uint32_t)imgBuf[pos]<<24)|((uint32_t)imgBuf[pos+1]<<16)|
+                                ((uint32_t)imgBuf[pos+2]<<8)|imgBuf[pos+3];
+                char ctype[5] = {(char)imgBuf[pos+4],(char)imgBuf[pos+5],
+                                 (char)imgBuf[pos+6],(char)imgBuf[pos+7],0};
+                Serial.printf("[IMG] chunk %-4s len=%u\n", ctype, clen);
+                if (strncmp(ctype,"IDAT",4) == 0) idatCount++;
+                if (strncmp(ctype,"IEND",4) == 0) break;
+                pos += 8 + clen + 4; // header + data + CRC
+            }
+            Serial.printf("[IMG] IDAT chunks: %d\n", idatCount);
+        }
+
+        // Merge multiple IDAT chunks into one (workaround for PNGdec multi-IDAT bug)
+        {
+            uint32_t mergedLen = 0;
+            uint8_t* mergedBuf = pngMergeIdats(imgBuf, received, &mergedLen);
+            if (mergedBuf) {
+                free(imgBuf);
+                imgBuf   = mergedBuf;
+                received = mergedLen;
+            }
+        }
+
         // PNG
         PNG* png = new PNG();
         int rc = png->openRAM(imgBuf, (int)received, pngDrawCb);
         if (rc != PNG_SUCCESS) {
             Serial.printf("[IMG] PNG open error %d\n", rc);
         } else {
-            PngCtx ctx = { png->getWidth(), png->getHeight() };
-            Serial.printf("[IMG] PNG %dx%d %dbpp\n", ctx.srcW, ctx.srcH, png->getBpp());
+            int srcW = png->getWidth();
+            int srcH = png->getHeight();
+            // Always row-skip: matches HGD spec (compress 1440→720 by taking every other row).
+            bool yCrop = false;
+            PngCtx ctx = { srcW, srcH, /*cropTop=*/0, yCrop };
+            Serial.printf("[IMG] PNG %dx%d %dbpp pixtype=%d\n",
+                          srcW, srcH, png->getBpp(), png->getPixelType());
             int decRc = png->decode((void*)&ctx, 0);
-            Serial.printf("[IMG] PNG decode rc=%d\n", decRc);
+            Serial.printf("[IMG] PNG decode rc=%d lastErr=%d\n", decRc, png->getLastError());
             ok = (decRc == PNG_SUCCESS || decRc == PNG_QUIT_EARLY);
         }
         png->close(); delete png;
@@ -530,9 +667,12 @@ bool imgFetchAndConvert(const char* url)
         return false;
     }
 
-    PngCtx ctx = { png->getWidth(), png->getHeight() };
-    Serial.printf("[IMG] PNG: %d x %d, %d bpp — decoding...\n",
-                  ctx.srcW, ctx.srcH, png->getBpp());
+    int srcW = png->getWidth();
+    int srcH = png->getHeight();
+    bool yCrop = false;
+    PngCtx ctx = { srcW, srcH, /*cropTop=*/0, yCrop };
+    Serial.printf("[IMG] PNG: %d x %d, %d bpp pixtype=%d — decoding...\n",
+                  srcW, srcH, png->getBpp(), png->getPixelType());
 
     int decRc = png->decode((void*)&ctx, 0);
     Serial.printf("[IMG] decode rc=%d (0=OK, -5=TOO_BIG, -8=QUIT_EARLY)\n", decRc);

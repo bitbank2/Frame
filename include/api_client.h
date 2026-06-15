@@ -29,6 +29,8 @@ struct TrmnlDisplayResult {
 TrmnlSetupResult  trmnlSetup(const String& baseUrl = TRMNL_BASE_URL);
 
 // GET /api/display  — fetch current image URL for this device.
+// battery_voltage_mV: cell voltage from BQ27427; sent as "Battery-Voltage" header (in V).
 // WiFi must be connected before calling.
 TrmnlDisplayResult trmnlDisplay(const String& api_key,
+                                uint16_t battery_voltage_mV = 0,
                                 const String& baseUrl = TRMNL_BASE_URL);
