@@ -264,7 +264,7 @@ unsigned char readPmicRegister(unsigned char registerAddress, unsigned char *dat
     }
 }
 
-void enablePmic(void)
+unsigned char enablePmic(void)
 {
     if (setPmic() == DONE)
     {
@@ -275,35 +275,64 @@ void enablePmic(void)
         // delayms(1000);       // test
         set_ESP32_GpioLevel(0x01);
         printf("Setting PMIC_EN to HIGH...\r\n");
-        // Wait for PMIC_PG with timeout (max 5 seconds)
-        int timeout = 5000; // 5 seconds timeout
-        int elapsed = 0;
+        // Read PMIC_PG for 1 second no matter its value, then check it
         printf("Waiting for PMIC_PG to go HIGH...\n");
-        while (!(getGpioLevel(PMIC_PG)))
+        int elapsed = 0;
+        while (elapsed < 1000)
         {
-            delayms(10);
-            elapsed += 10;
-            if (elapsed >= timeout)
+            delayms(100);
+            elapsed += 100;
+            printf("PMIC_PG pin state: %d (%d ms)\n", getGpioLevel(PMIC_PG), elapsed);
+        }
+        ////////// debug only
+        // unsigned char reg_data_0x1D = 0;
+        // unsigned char reg_data_0x1E = 0;
+        // // Read 1 byte from register 0x1D
+        // printf("Reading from PMIC register 0x1D...\n");
+        // if (readPmicRegister(0x1D, &reg_data_0x1D, 1) == DONE)
+        // {
+        //     printf("Register 0x1D: 0x%02X (%d)\n", reg_data_0x1D, reg_data_0x1D);
+        // }
+        // printf("\n");
+        // // Read 1 byte from register 0x1E
+        // printf("Reading from PMIC register 0x1E...\n");
+        // if (readPmicRegister(0x1E, &reg_data_0x1E, 1) == DONE)
+        // {
+        //     printf("Register 0x1E: 0x%02X (%d)\n", reg_data_0x1E, reg_data_0x1E);
+        // }
+        //////////
+        if (!getGpioLevel(PMIC_PG))
+        {
+            // Not high yet - allow up to 4 more seconds before giving up
+            printf("PMIC_PG not HIGH after 1s, waiting up to 4 more seconds...\n");
+            elapsed = 0;
+            while (!getGpioLevel(PMIC_PG) && elapsed < 4000)
             {
-                printf("ERROR: PMIC_PG timeout! PMIC did not reach power good state.\n");
-                printf("PMIC_PG pin state: %d (should be 1)\n", getGpioLevel(PMIC_PG));
-                return; // Exit instead of hanging forever
+                delayms(100);
+                elapsed += 100;
             }
-            if (elapsed % 500 == 0)
+            if (!getGpioLevel(PMIC_PG))
             {
-                printf("Still waiting for PMIC_PG... (%d ms)\n", elapsed);
+                printf("WARNING: PMIC_PG timeout! Proceeding anyway.\n");
+                printf("PMIC_PG pin state: %d (should be 1)\n", getGpioLevel(PMIC_PG));
             }
         }
-        printf("PMIC_PG is HIGH - Power good!\n");
+
+        if (getGpioLevel(PMIC_PG))
+        {
+            printf("PMIC_PG is HIGH - Power good!\n");
+        }
 #if SHOW_LOG
         printf("enablePmic() done. \r\n");
 #endif
+        return getGpioLevel(PMIC_PG) ? DONE : ERROR;
     }
     else
     {
 #if SHOW_LOG
         printf("enablePmic() error. \r\n");
 #endif
+        return ERROR;
     }
 }
 

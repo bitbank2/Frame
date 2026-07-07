@@ -63,6 +63,9 @@ const unsigned char SPIM_V[1] = {
 // Image data buffer - allocated in PSRAM at runtime
 unsigned char *epdImageDataBuffer = nullptr;
 
+// Tracks whether PMIC_PG stayed HIGH across the busy-wait loops in epdDisplay()
+static unsigned char pgWasGood = 1;
+
 //================== GPIO Control Functions ====================================
 
 /**
@@ -123,12 +126,17 @@ void epdSetCs(unsigned char csNumber, unsigned int setLevel)
  */
 void epdCheckBusyHigh(void)
 {
-        expander2.write1(12, HIGH);
-  expander2.pinMode1(12, OUTPUT);
+    //   expander2.write1(12, HIGH);// for debug only
+    //   expander2.pinMode1(12, OUTPUT);// for debug only
     int timeout = 60000; // 60 second timeout (31.5" ACeP needs up to 30s refresh)
     int elapsed = 0;
     while (!(!digitalRead(EPD_BUSY))) // added invertion because Hardware FIX mosfet
     {
+        if (!getGpioLevel(PMIC_PG))
+        {
+            pgWasGood = 0; // no printf here, epdDisplay() reports this once at the end
+        }
+
         delayms(1);
         elapsed++;
         if (elapsed >= timeout)
@@ -148,7 +156,7 @@ void epdCheckBusyLow(void)
 {
     int timeout = 60000; // 60 second timeout
     int elapsed = 0;
-    while (!digitalRead(EPD_BUSY))// added invertion because Hardware FIX
+    while (!digitalRead(EPD_BUSY)) // added invertion because Hardware FIX
     {
         delayms(1);
         elapsed++;
@@ -353,33 +361,50 @@ static void epdSetPwrToPmic(unsigned char *pmicData)
 void epdDisplay(void)
 {
 #if SHOW_LOG
+    //   expander2.write1(12, HIGH);// for debug only
+    //   expander2.pinMode1(12, OUTPUT);// for debug only
     printf("Turn on PMIC.\n");
 #endif
-    enablePmic();
+    if (enablePmic() == DONE)
+    {
+        pgWasGood = 1; // reset before tracking PMIC_PG across the busy-wait loops below
 
 #if SHOW_LOG
-    printf("Write PON\n");
+        printf("Write PON\n");
 #endif
-    epdSetCsAll(GPIO_LOW);
-    epdWriteCommand(EPD_CMD_PON);
-    epdCheckBusyHigh();
-    epdSetCsAll(GPIO_HIGH);
+        epdSetCsAll(GPIO_LOW);
+        epdWriteCommand(EPD_CMD_PON);
+        epdCheckBusyHigh();
+        epdSetCsAll(GPIO_HIGH);
 
 #if SHOW_LOG
-    printf("Write DRF\n");
+        printf("Write DRF\n");
 #endif
-    epdSetCsAll(GPIO_LOW);
-    delayms(30);
-    epdWrite(EPD_CMD_DRF, DRF_V, sizeof(DRF_V));
-    epdCheckBusyHigh();
-    epdSetCsAll(GPIO_HIGH);
+        epdSetCsAll(GPIO_LOW);
+        delayms(30);
+        epdWrite(EPD_CMD_DRF, DRF_V, sizeof(DRF_V));
+        epdCheckBusyHigh();
+        epdSetCsAll(GPIO_HIGH);
 
 #if SHOW_LOG
-    printf("Write POF\n");
+        printf("Write POF\n");
 #endif
-    epdSetCsAll(GPIO_LOW);
-    epdWrite(EPD_CMD_POF, POF_V, sizeof(POF_V));
-    epdSetCsAll(GPIO_HIGH);
+        epdSetCsAll(GPIO_LOW);
+        epdWrite(EPD_CMD_POF, POF_V, sizeof(POF_V));
+        epdSetCsAll(GPIO_HIGH);
+#if SHOW_LOG
+        if (!pgWasGood)
+        {
+            printf("WARNING: PMIC_PG == LOW ==\n");
+        }
+#endif
+    }
+    else
+    {
+#if SHOW_LOG
+        printf("PMIC enable failed - skipping display refresh.\n");
+#endif
+    }
 
 #if SHOW_LOG
     printf("Turn off PMIC.\n");

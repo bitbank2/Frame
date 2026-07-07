@@ -6,9 +6,9 @@
 #include "globals.h"
 #include "pmic.h"
 #include "status.h"
-#include "img_fetch.h"   // BfkLx0_sections[] via PSRAM download (PNG + BMP)
-#include "api_client.h"  // TRMNL /api/setup + /api/display
-#include "battery.h"     // BQ27427 fuel gauge + BQ25616 charger status
+#include "img_fetch.h"  // BfkLx0_sections[] via PSRAM download (PNG + BMP)
+#include "api_client.h" // TRMNL /api/setup + /api/display
+#include "battery.h"    // BQ27427 fuel gauge + BQ25616 charger status
 #include "esp_sleep.h"
 #include <WiFi.h>
 #include <Preferences.h>
@@ -110,12 +110,14 @@ void printWakeupReason()
 
 void enterDeepSleep(uint32_t sleepSeconds)
 {
-  if (sleepSeconds < SLEEP_DURATION_MIN_SECS) sleepSeconds = SLEEP_DURATION_MIN_SECS;
+  if (sleepSeconds < SLEEP_DURATION_MIN_SECS)
+    sleepSeconds = SLEEP_DURATION_MIN_SECS;
   Serial.printf("[SLEEP] Will sleep for %u s (%u min)\n", sleepSeconds, sleepSeconds / 60);
-
+  Serial.flush();
   esp_sleep_enable_timer_wakeup((uint64_t)sleepSeconds * 1000000ULL);
 
   Serial.println("[SLEEP] Configuring IO as deep sleep wakeup source (active LOW)...");
+  Serial.flush();
   expander2.pinMode1(EXP2_EN_DC12, INPUT);
   delay(50);
   expander1.pinMode1(EXP1_VDDP_EN, INPUT);
@@ -168,8 +170,8 @@ void enterDeepSleep(uint32_t sleepSeconds)
   pinMode(8, INPUT);
   pinMode(9, INPUT);
   pinMode(10, INPUT);
-  pinMode(13, INPUT);
-  pinMode(14, INPUT);
+  // pinMode(13, INPUT);
+  // pinMode(14, INPUT);
   pinMode(23, INPUT);
   pinMode(24, INPUT);
   pinMode(25, INPUT);
@@ -294,9 +296,9 @@ void setup()
   delay(10);
   digitalWrite(EXP_EN, HIGH);
   delay(100);
-  expander2.write1(12, LOW);//test
-  expander2.pinMode1(12, OUTPUT);//test
-  pinMode(PMIC_PG, INPUT); // PG io 26
+  expander2.write1(12, LOW);      // test
+  expander2.pinMode1(12, OUTPUT); // test
+  pinMode(PMIC_PG, INPUT);        // PG io 26
   delay(50);
   pinMode(EPD_BUSY, INPUT); // busy io 27
   delay(50);
@@ -447,7 +449,7 @@ void setup()
   uint32_t sleepSeconds = SLEEP_DURATION_SECONDS;
   {
     Preferences p;
-    p.begin("trmnl", true);  // read-only
+    p.begin("trmnl", true); // read-only
     sleepSeconds = p.getUInt("sleep_s", SLEEP_DURATION_SECONDS);
     p.end();
   }
@@ -455,8 +457,8 @@ void setup()
                 sleepSeconds, sleepSeconds / 60);
 
   // === WIFI START BLOCK ===
-  WiFi.persistent(false);   // do not save credentials to NVS — avoids stale state
-  WiFi.disconnect(true);    // clear any state from a previous WiFi.mode() call
+  WiFi.persistent(false); // do not save credentials to NVS — avoids stale state
+  WiFi.disconnect(true);  // clear any state from a previous WiFi.mode() call
   delay(100);
   WiFi.begin(IMG_FETCH_WIFI_SSID, IMG_FETCH_WIFI_PASS);
   Serial.printf("[WIFI] Connecting to %s...\n", IMG_FETCH_WIFI_SSID);
@@ -464,16 +466,26 @@ void setup()
 
   // === IMAGE DOWNLOAD BLOCK ===
   // Free solid-color test buffers so the 2.3 MB section buffers fit in PSRAM.
-  for (int i = 0; i < numColors; i++) { free(colorBuffers[i]); colorBuffers[i] = nullptr; }
+  for (int i = 0; i < numColors; i++)
+  {
+    free(colorBuffers[i]);
+    colorBuffers[i] = nullptr;
+  }
 
   // ── Wait for WiFi (always — needed for both setup and display calls) ────────
   Serial.printf("[WIFI] Waiting for connection to %s...\n", IMG_FETCH_WIFI_SSID);
   {
     uint32_t t0 = millis();
     uint32_t tPrint = t0;
-    while (WiFi.status() != WL_CONNECTED) {
-      if (millis() - t0 > 30000UL) { Serial.println("[WIFI] timeout"); goto skip_display; }
-      if (millis() - tPrint >= 2000UL) {
+    while (WiFi.status() != WL_CONNECTED)
+    {
+      if (millis() - t0 > 30000UL)
+      {
+        Serial.println("[WIFI] timeout");
+        goto skip_display;
+      }
+      if (millis() - tPrint >= 2000UL)
+      {
         tPrint = millis();
         Serial.printf("[WIFI] status=%d  elapsed=%lus\n",
                       (int)WiFi.status(), (millis() - t0) / 1000UL);
@@ -491,35 +503,40 @@ void setup()
   {
     Preferences prefs;
     prefs.begin("trmnl", false);
-    String apiKey     = prefs.getString("api_key",     "");
+    String apiKey = prefs.getString("api_key", "");
     String friendlyId = prefs.getString("friendly_id", "");
 
-    if (apiKey.isEmpty()) {
+    if (apiKey.isEmpty())
+    {
       TrmnlSetupResult setup = trmnlSetup();
-      if (!setup.ok) {
+      if (!setup.ok)
+      {
         Serial.println("\n================================================");
         Serial.printf("  DEVICE NOT REGISTERED  (status=%d)\n", setup.status);
         Serial.println("  Go to usetrmnl.com → Add Device, enter MAC:");
         Serial.printf("  >>> %s <<<\n", WiFi.macAddress().c_str());
         Serial.println("================================================\n");
         // Show MAC address large and centered so user can read it off the display
-        if (imgAllocSolid(0x1)) {
+        if (imgAllocSolid(0x1))
+        {
           char mac[24] = {};
           WiFi.macAddress().toCharArray(mac, sizeof(mac));
-          const uint32_t sc  = 10u;
+          const uint32_t sc = 10u;
           const uint32_t len = (uint32_t)strlen(mac);
-          const uint32_t cx  = (len * 8u * sc < DISPLAY_VISIBLE_W)
-                               ? (DISPLAY_VISIBLE_W - len * 8u * sc) / 2u : 0u;
-          const uint32_t cy  = (8u * sc < IMG_FETCH_SECTION_H)
-                               ? (IMG_FETCH_SECTION_H - 8u * sc) / 2u : 0u;
+          const uint32_t cx = (len * 8u * sc < DISPLAY_VISIBLE_W)
+                                  ? (DISPLAY_VISIBLE_W - len * 8u * sc) / 2u
+                                  : 0u;
+          const uint32_t cy = (8u * sc < IMG_FETCH_SECTION_H)
+                                  ? (IMG_FETCH_SECTION_H - 8u * sc) / 2u
+                                  : 0u;
           imgDrawText(cx, cy, mac, 0x0u, 0x1u, (uint8_t)sc);
         }
         prefs.end();
         goto skip_display;
       }
-      prefs.putString("api_key",     setup.api_key);
+      prefs.putString("api_key", setup.api_key);
       prefs.putString("friendly_id", setup.friendly_id);
-      apiKey     = setup.api_key;
+      apiKey = setup.api_key;
       friendlyId = setup.friendly_id;
     }
     prefs.end();
@@ -533,21 +550,26 @@ void setup()
 
     // ── Step 2: get image URL from /api/display ─────────────────────────────
     TrmnlDisplayResult disp = trmnlDisplay(apiKey, bat.voltage_mV);
-    if (!disp.ok) {
+    if (!disp.ok)
+    {
       Serial.printf("[TRMNL] display: status=%d, no image\n", disp.status);
       // Show friendly_id large and centered — device registered but no plugin yet
-      if (imgAllocSolid(0x1) && !friendlyId.isEmpty()) {
-        const uint32_t sc  = 14u;
+      if (imgAllocSolid(0x1) && !friendlyId.isEmpty())
+      {
+        const uint32_t sc = 14u;
         const uint32_t len = (uint32_t)friendlyId.length();
-        const uint32_t cx  = (len * 8u * sc < DISPLAY_VISIBLE_W)
-                             ? (DISPLAY_VISIBLE_W - len * 8u * sc) / 2u : 0u;
-        const uint32_t cy  = (8u * sc < IMG_FETCH_SECTION_H)
-                             ? (IMG_FETCH_SECTION_H - 8u * sc) / 2u : 0u;
+        const uint32_t cx = (len * 8u * sc < DISPLAY_VISIBLE_W)
+                                ? (DISPLAY_VISIBLE_W - len * 8u * sc) / 2u
+                                : 0u;
+        const uint32_t cy = (8u * sc < IMG_FETCH_SECTION_H)
+                                ? (IMG_FETCH_SECTION_H - 8u * sc) / 2u
+                                : 0u;
         imgDrawText(cx, cy, friendlyId.c_str(), 0x0u, 0x1u, (uint8_t)sc);
       }
       goto skip_display;
     }
-    if (disp.refresh_rate > 0) {
+    if (disp.refresh_rate > 0)
+    {
       sleepSeconds = disp.refresh_rate;
       Preferences p;
       p.begin("trmnl", false);
@@ -562,7 +584,7 @@ void setup()
     imgFetchUrl(disp.image_url.c_str());
   }
 
-  skip_display:;
+skip_display:;
   // === END IMAGE DOWNLOAD BLOCK ===
 
   // Drive EPD with whatever was prepared: real image, device-info screen, or nothing.
@@ -594,15 +616,17 @@ void setup()
   }
 
   // === CLEANUP BLOCK ===
-  imgFreeBuffers();         // release the 8 PSRAM section buffers
-  WiFi.disconnect(true);    // shut down WiFi radio before deep sleep
+  imgFreeBuffers();      // release the 8 PSRAM section buffers
+  WiFi.disconnect(true); // shut down WiFi radio before deep sleep
   // === END CLEANUP BLOCK ===
 
   // Read battery again before sleep (shows state after display update)
   batteryLog(batteryRead());
-
+  // Please turn off VDDP, VDDN & VNCP when the EPD does not update the screen within 50 seconds.
+  // delayms(50000); // Waiting for PMIC discharge to be 0V.//debug only
   powerSwitchDisable();
   printf("======================================\n\n");
+  // sleepSeconds = 60;//120 //debug only 
   enterDeepSleep(sleepSeconds);
 }
 void loop()
