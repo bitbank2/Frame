@@ -5,6 +5,8 @@
 #include "img_fetch.h"
 #include <stdint.h>
 #include <stddef.h>
+#include <bb_epaper.h>
+extern BBEPAPER bbep;
 
 // 8×8 bitmap font for printable ASCII (codes 32–127).
 // Each entry is 8 row bytes; bit 7 (MSB) = leftmost pixel.
@@ -124,7 +126,8 @@ void imgDrawText(uint32_t x, uint32_t y, const char* text,
                 uint32_t py = y  + row * scale;
                 for (uint32_t sy = 0; sy < scale; sy++)
                     for (uint32_t sx = 0; sx < scale; sx++)
-                        imgWritePixel(px + sx, py + sy, nib);
+                        bbep.drawPixel(px + sx, py + sy, nib);
+                       // imgWritePixel(px + sx, py + sy, nib);
             }
         }
     }

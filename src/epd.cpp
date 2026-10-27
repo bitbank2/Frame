@@ -23,6 +23,8 @@ extern "C"
 #include "comm.h"
 }
 
+static SPISettings spiSettings(10000000, MSBFIRST, SPI_MODE0); // 10MHz 1-bit SPI is fine
+
 // SPI CS pin mapping - using TCA9555 expander pins
 // 8 chip selects: EXP1_SPI1_CS0-3 (pins 0-3) and EXP1_SPI2_CS0-3 (pins 4-7)
 static const unsigned char spiCsPin[8] = {
@@ -525,19 +527,62 @@ void epdDisplayColorBar(void)
 #endif
     }
 }
-
-void epdWriteImage(unsigned char csx, const unsigned char *imageData, unsigned long imageDataLength)
+//
+// Write the image data from the local framebuffer into each of the 8 EPD controllers
+// The physical layout of the controllers is portrait mode, 1440 wide by 2560 tall. We treat the
+// display as if it's landscape 2560 x 1440 and must rotate the lines as we write them.
+//
+// Each of the 8 controllers manages a vertical column of pixels (in landscape orientation) from the top
+// of the display to the bottom. They are all 400x720 bytes, but not all are of each controller's pixels
+// are visible. From left to right, here are the visible widths of each controller (in pixels):
+// 0: 400, 1: 400, 2: 400, 3: 80, 4: 400, 5: 400, 6: 400, 7: 80
+// 400+400+400+80+400+400+400+80 = 2560 pixels wide
+// The controllers with only 80 visible columns still need the same number of bytes written to them
+// as the other controllers; columns 81-399 are not visible.
+//
+// Within each vertical bar, the bytes are laid out as follows. Each 400 byte row of bytes defines
+// 2 rows of 400 pixels, with the bytes oriented vertically and the most significant nibble on the top
+// e.g. here are 4 bytes which represent a 4x2 block of pixels:
+// +---+---+---+---+
+// |B0H|B1H|B2H|B3H| pixels (0,0),(1,0),(2,0),(3,0) from the high nibbles of bytes 0-3
+// +---+---+---+---+
+// |B0L|B1L|B2L|B3L| pixels (0,1),(1,1),(2,1),(3,1) from the low nibbles of bytes 0-3
+// +---+---+---+---+
+//
+void epdWriteImage(void *pFrameBuffer)       
 {
-    printf("Writing image data to driver IC %d...\n", csx);
+int x, tx, ty, tw, i;
+int csx, iWidth, iPitch;
+uint8_t uc, *s, *d;
+uint8_t *u8LineBuf;
+const int pix_offs[8] = {0, 200, 400, 600, 640, 840, 1040, 1240};
 
-    epdSetCs(csx, GPIO_LOW);
-    spiTransmitLargeData(EPD_CMD_DTM, (unsigned char *)imageData, imageDataLength);
-    epdSetCs(csx, GPIO_HIGH);
-
-#if SHOW_LOG
-    printf("Writing data is completed.\n");
-#endif
-}
+    u8LineBuf = (uint8_t *)malloc(400);
+    iPitch = 2560/2; // bytes per row of source image
+    Serial.println("[EPD] Writing image data to EPD"); 
+    for (csx=0; csx<8; csx++) { // 8 horizontal regions 
+        s = (uint8_t *)pFrameBuffer;
+        s += pix_offs[csx]; // 200 bytes per 400 pixel region
+        epdSetCs(csx, GPIO_LOW);
+        SPI.beginTransaction(spiSettings); // DEBUG - convert to QSPI
+        SPI.transfer(EPD_CMD_DTM);
+        for (ty = 0; ty < 1440; ty+=2) { // write 800 x 720 pixels into this controller's RAM
+            uint8_t *ts = s;
+            d = u8LineBuf;
+            tw = (csx == 3 || csx == 7) ? 80 : 400;
+            for (tx=0; tx<tw; tx+=2) {
+                *d++ = (ts[0] & 0xf0) | (ts[iPitch] >> 4);
+                *d++ = (ts[0] << 4) | (ts[iPitch] & 0xf);
+                ts++;
+            }
+            SPI.writeBytes(u8LineBuf, 400);
+            s += (iPitch * 2); // next pair of lines
+        } // per row of this section
+        SPI.endTransaction();
+        epdSetCs(csx, GPIO_HIGH);
+    } // per horizontal section
+    free(u8LineBuf);
+} /* epdWriteImage() */
 
 unsigned char epdSetPower(void)
 {

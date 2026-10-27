@@ -12,6 +12,8 @@
 #include "esp_sleep.h"
 #include <WiFi.h>
 #include <Preferences.h>
+#include <bb_epaper.h>
+extern BBEPAPER bbep;
 
 extern "C"
 {
@@ -422,25 +424,6 @@ void setup()
   // Initialize EPD driver ICs
   printf("\n========== Initializing EPD ==========\n");
 
-  // Allocate one PSRAM buffer per color and pre-fill
-  const uint8_t colorValues[] = {EPD_BLACK, EPD_WHITE, EPD_YELLOW, EPD_RED, EPD_BLUE, EPD_GREEN};
-  const char *colorNames[] = {"BLACK", "WHITE", "YELLOW", "RED", "BLUE", "GREEN"};
-  const int numColors = 6;
-  unsigned char *colorBuffers[numColors];
-
-  for (int i = 0; i < numColors; i++)
-  {
-    colorBuffers[i] = (unsigned char *)ps_malloc(EPD_IMAGE_DATA_BUFFER);
-    if (colorBuffers[i] == nullptr)
-    {
-      printf("[EPD] FATAL: ps_malloc failed for %s buffer!\n", colorNames[i]);
-      while (1)
-        ;
-    }
-    memset(colorBuffers[i], colorValues[i], EPD_IMAGE_DATA_BUFFER);
-    printf("[EPD] %s buffer ready in PSRAM (%u bytes)\n", colorNames[i], EPD_IMAGE_DATA_BUFFER);
-  }
-
   // Read battery before starting WiFi (shows state at wake-up)
   BatteryStatus bat = batteryRead();
   batteryLog(bat);
@@ -463,14 +446,6 @@ void setup()
   WiFi.begin(IMG_FETCH_WIFI_SSID, IMG_FETCH_WIFI_PASS);
   Serial.printf("[WIFI] Connecting to %s...\n", IMG_FETCH_WIFI_SSID);
   // === END WIFI START BLOCK ===
-
-  // === IMAGE DOWNLOAD BLOCK ===
-  // Free solid-color test buffers so the 2.3 MB section buffers fit in PSRAM.
-  for (int i = 0; i < numColors; i++)
-  {
-    free(colorBuffers[i]);
-    colorBuffers[i] = nullptr;
-  }
 
   // ── Wait for WiFi (always — needed for both setup and display calls) ────────
   Serial.printf("[WIFI] Waiting for connection to %s...\n", IMG_FETCH_WIFI_SSID);
@@ -517,7 +492,7 @@ void setup()
         Serial.printf("  >>> %s <<<\n", WiFi.macAddress().c_str());
         Serial.println("================================================\n");
         // Show MAC address large and centered so user can read it off the display
-        if (imgAllocSolid(0x1))
+        if (1) //imgAllocSolid(0x1))
         {
           char mac[24] = {};
           WiFi.macAddress().toCharArray(mac, sizeof(mac));
@@ -554,7 +529,7 @@ void setup()
     {
       Serial.printf("[TRMNL] display: status=%d, no image\n", disp.status);
       // Show friendly_id large and centered — device registered but no plugin yet
-      if (imgAllocSolid(0x1) && !friendlyId.isEmpty())
+      if (/*imgAllocSolid(0x1) && */ !friendlyId.isEmpty())
       {
         const uint32_t sc = 14u;
         const uint32_t len = (uint32_t)friendlyId.length();
@@ -588,7 +563,7 @@ skip_display:;
   // === END IMAGE DOWNLOAD BLOCK ===
 
   // Drive EPD with whatever was prepared: real image, device-info screen, or nothing.
-  if (BfkLx0_sections[0] != nullptr)
+  if (bbep.getBuffer() != nullptr)
   {
     delayms(10);
     if (epdCheckDriverICStatus() == DONE)
@@ -596,17 +571,10 @@ skip_display:;
       epdInit();
       if (epdSetPower() == DONE)
       {
-        epdWriteImage(0, BfkLx0_sections[0], EPD_IMAGE_DATA_BUFFER);
-        epdWriteImage(1, BfkLx0_sections[1], EPD_IMAGE_DATA_BUFFER);
-        epdWriteImage(2, BfkLx0_sections[2], EPD_IMAGE_DATA_BUFFER);
-        epdWriteImage(3, BfkLx0_sections[3], EPD_IMAGE_DATA_BUFFER);
-        epdWriteImage(4, BfkLx0_sections[4], EPD_IMAGE_DATA_BUFFER);
-        epdWriteImage(5, BfkLx0_sections[5], EPD_IMAGE_DATA_BUFFER);
-        epdWriteImage(6, BfkLx0_sections[6], EPD_IMAGE_DATA_BUFFER);
-        epdWriteImage(7, BfkLx0_sections[7], EPD_IMAGE_DATA_BUFFER);
+        epdWriteImage(bbep.getBuffer());
         epdDisplay();
         printf("Display complete.\n");
-        delay(2000);
+      //  delay(2000);
       }
     }
     else

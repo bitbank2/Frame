@@ -75,7 +75,8 @@ unsigned char epdSetPower(void);
 void epdDisplay(void);
 void epdDisplayColor(unsigned char colorSelect);
 void epdDisplayColorBar(void);
-void epdWriteImage(unsigned char csx, const unsigned char *imageData, unsigned long imageDataLength);
+void epdWriteImage(void *pFramebuffer);
+//void epdWriteImage(unsigned char csx, const unsigned char *imageData, unsigned long imageDataLength);
 
 #ifdef __cplusplus
 }

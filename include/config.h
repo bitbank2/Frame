@@ -1,8 +1,8 @@
 #pragma once
 
 // WiFi credentials
-#define IMG_FETCH_WIFI_SSID  "SSID"
-#define IMG_FETCH_WIFI_PASS  "Password"
+#define IMG_FETCH_WIFI_SSID  "WIFI-5DD8"
+#define IMG_FETCH_WIFI_PASS  "clear5651engine"
 
 // TRMNL cloud server
 #define TRMNL_BASE_URL       "https://trmnl.app"
