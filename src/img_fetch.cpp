@@ -28,6 +28,11 @@ const int iSpectraRGB[] = { // r, g, b
     0,0,192, // blue = 4
     0,192,0, // green = 5
 };
+// Fixes the 'gap' in Spectra6 color numbering
+const uint8_t u8SpectraAdjust[8] = {
+    0, 1, 2, 3, 5, 6, 0, 0
+};
+
 // Map the Spectra6 palette to the closest RGB333 values
 void CreateSpectra6Pal(void)
 {
@@ -53,7 +58,7 @@ void CreateSpectra6Pal(void)
                 min_index = j;
             }
         } // for j
-        u8SpectraPal[i] = min_index; // best match palette index for this RGB333 color
+        u8SpectraPal[i] = u8SpectraAdjust[min_index]; // best match palette index for this RGB333 color
     } // for i
 } /* CreateSpectra6Pal() */
 //
